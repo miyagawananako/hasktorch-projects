@@ -46,6 +46,8 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - linearRegression
+    - hasktorch
+    - hasktorch-tools
 
 tests:
   linearRegression-test:

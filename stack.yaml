@@ -39,7 +39,7 @@ extra-deps:
   - git: http://github.com/DaisukeBekki/nlp-tools.git
     commit: 0b6912850dbffd14ed16c3fa26a0773c877ba093
 # for hasktorch-tools
-  - <path/to/your/hasktorch-tools>/hasktorch-tools
+  - /home/acf16408ip/hasktorch-tools
 
 #allow-newer: true
     
