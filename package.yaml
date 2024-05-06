@@ -48,6 +48,8 @@ executables:
     - linearRegression
     - hasktorch
     - hasktorch-tools
+    - bytestring
+    - cassava
 
 tests:
   linearRegression-test:
