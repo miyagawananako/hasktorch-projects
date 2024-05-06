@@ -37,9 +37,9 @@ feed k csvFile = do
     True  -> return $ k empty
     False -> k <$> hGetSome csvFile 4096
 
-readFromFile :: IO ()
-readFromFile = do
-  withFile "train.csv" ReadMode $ \ csvFile -> do
+readFromFile :: FilePath -> IO ()
+readFromFile fileName = do
+  withFile fileName ReadMode $ \csvFile -> do
     let loop !_ (Fail _ errMsg) = do putStrLn errMsg; exitFailure
         loop acc (Many rs k)    = loop (acc <> rs) =<< feed k csvFile
         loop acc (Done rs)      = print (acc <> rs)
@@ -62,7 +62,9 @@ printParams trained = do
 
 main :: IO ()
 main = do
-  readFromFile
+  readFromFile "data/train.csv"
+  readFromFile "data/valid.csv"
+  readFromFile "data/eval.csv"
 
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}
   randGen <- defaultRNG
