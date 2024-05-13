@@ -23,6 +23,9 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Csv.Incremental
 import Data.Csv (FromRecord, ToRecord)
 
+import System.IO.Unsafe (unsafePerformIO)
+import Data.List.Split (splitOn)
+
 data WeatherData = WeatherData
   { date :: !ByteString
   , daily_mean_temperature  :: !Double
@@ -37,14 +40,20 @@ feed k csvFile = do
     True  -> return $ k empty
     False -> k <$> hGetSome csvFile 4096
 
-readFromFile :: FilePath -> IO ()
-readFromFile fileName = do
-  withFile fileName ReadMode $ \csvFile -> do
-    let loop !_ (Fail _ errMsg) = do putStrLn errMsg; exitFailure
-        loop acc (Many rs k)    = loop (acc <> rs) =<< feed k csvFile
-        loop acc (Done rs)      = print (acc <> rs)
-    loop [] (decode NoHeader)
+readFromFile :: FilePath -> [Float]
+readFromFile path = unsafePerformIO $ do
+    content <- readFile path
+    let temperatureList = map (read . last . splitOn ",") $ tail $ lines content
+    return temperatureList
 
+trainingData :: [Float]
+trainingData = readFromFile "data/train.csv"
+
+validData :: [Float]
+validData = readFromFile "data/valid.csv"
+
+evalData :: [Float]
+evalData = readFromFile "data/eval.csv"
 
 model :: Linear -> Tensor -> Tensor
 model state input = squeezeAll $ linear state input
@@ -62,9 +71,9 @@ printParams trained = do
 
 main :: IO ()
 main = do
-  readFromFile "data/train.csv"
-  readFromFile "data/valid.csv"
-  readFromFile "data/eval.csv"
+  print trainingData
+  print validData
+  print evalData
 
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}
   randGen <- defaultRNG

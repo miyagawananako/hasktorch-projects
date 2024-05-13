@@ -53,6 +53,8 @@ executable linearRegression-exe
     , hasktorch
     , hasktorch-tools
     , linearRegression
+    , nlp-tools
+    , split
   default-language: Haskell2010
 
 test-suite linearRegression-test
