@@ -11,34 +11,8 @@ module Main where
 
 import Control.Monad (when)
 import Torch
-
--- from base
-import GHC.Generics
-import System.IO
-import System.Exit (exitFailure)
--- from bytestring
-import Data.ByteString (ByteString, hGetSome, empty)
-import qualified Data.ByteString.Lazy as BL
--- from cassava
-import Data.Csv.Incremental
-import Data.Csv (FromRecord, ToRecord)
-
 import System.IO.Unsafe (unsafePerformIO)
 import Data.List.Split (splitOn)
-
-data WeatherData = WeatherData
-  { date :: !ByteString
-  , daily_mean_temperature  :: !Double
-  } deriving (Show, Eq, Generic)
-
-instance FromRecord WeatherData
-instance ToRecord WeatherData
-
-feed :: (ByteString -> Parser WeatherData) -> Handle -> IO (Parser WeatherData)
-feed k csvFile = do
-  hIsEOF csvFile >>= \case
-    True  -> return $ k empty
-    False -> k <$> hGetSome csvFile 4096
 
 readFromFile :: FilePath -> [Float]
 readFromFile path = unsafePerformIO $ do
@@ -71,9 +45,9 @@ printParams trained = do
 
 main :: IO ()
 main = do
-  print trainingData
-  print validData
-  print evalData
+  print $ Prelude.take 5 trainingData
+  print $ Prelude.take 5 validData
+  print $ Prelude.take 5 evalData
 
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}
   randGen <- defaultRNG
