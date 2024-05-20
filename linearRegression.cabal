@@ -55,6 +55,8 @@ executable linearRegression-exe
     , linearRegression
     , nlp-tools
     , split
+    , text
+    , vector
   default-language: Haskell2010
 
 test-suite linearRegression-test
