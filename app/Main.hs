@@ -24,33 +24,26 @@ data WeatherData = WeatherData
 instance FromNamedRecord WeatherData where
     parseNamedRecord r = WeatherData <$> r .: "date" <*> r .: "daily_mean_temprature"
 
--- WeatherData型を受け取ったらdaily_mean_tempratureを返す 
-return_daily_mean_temprature :: WeatherData -> Float
-return_daily_mean_temprature = daily_mean_temprature
+extractTemperatures :: V.Vector WeatherData -> [Float]
+extractTemperatures vector_weatherdata =
+  let weatherList = V.toList vector_weatherdata
+  in map daily_mean_temprature weatherList
 
--- Vector WeatherDataを受け取ったらFloatのリストを返す
-make_list :: (V.Vector WeatherData) -> [Float]
-make_list vector_weatherdata =
-  let tempature_list = V.toList vector_weatherdata
-  in map return_daily_mean_temprature tempature_list
-
-readFromFile :: FilePath -> IO [Float]
-readFromFile path = do
+readTemperaturesFromFile :: FilePath -> IO [Float]
+readTemperaturesFromFile path = do
   csvData <- BL.readFile path
   case decodeByName csvData of
-      Left err -> do
-          putStrLn err
-          return []
-      Right (_, v) -> return (make_list v)
+      Left err -> error err
+      Right (_, v) -> return (extractTemperatures v)
 
-trainingData :: IO [Float]
-trainingData = readFromFile "data/train.csv"
+trainingTemperatures :: IO [Float]
+trainingTemperatures = readTemperaturesFromFile "data/train.csv"
 
-validData :: IO [Float]
-validData = readFromFile "data/valid.csv"
+validTemperatures :: IO [Float]
+validTemperatures = readTemperaturesFromFile "data/valid.csv"
 
-evalData :: IO [Float]
-evalData = readFromFile "data/eval.csv"
+evalTemperatures :: IO [Float]
+evalTemperatures = readTemperaturesFromFile "data/eval.csv"
 
 model :: T.Linear -> T.Tensor -> T.Tensor
 model state input = squeezeAll $ linear state input
@@ -68,13 +61,11 @@ printParams trained = do
 
 main :: IO ()
 main = do
-  -- train :: [Float]
-  train <- trainingData
-  print $ take 5 train
+  trainingData <- trainingTemperatures
+  print $ take 5 trainingData
 
-  -- pairdata :: [([Float], Float)]
-  let pairdata = [(take 7 (drop i train), train !! (i+7)) | i <- [0..(length train - 8)]]
-  print $ take 5 pairdata
+  let pairedData = [(take 7 (drop i trainingData), trainingData !! (i+7)) | i <- [0..(length trainingData - 8)]]
+  print $ take 5 pairedData
 
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}
   randGen <- defaultRNG
