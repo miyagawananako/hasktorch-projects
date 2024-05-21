@@ -18,31 +18,34 @@ import Data.Csv (FromNamedRecord, (.:), parseNamedRecord, decodeByName)
 
 data WeatherData = WeatherData
   { date :: !ByteString
-  , daily_mean_temprature :: !Float
+  , daily_mean_temperature :: !Float
   } deriving (Generic, Show)
 
 instance FromNamedRecord WeatherData where
-    parseNamedRecord r = WeatherData <$> r .: "date" <*> r .: "daily_mean_temprature"
+    parseNamedRecord r = WeatherData <$> r .: "date" <*> r .: "daily_mean_temperature"
 
 extractTemperatures :: V.Vector WeatherData -> [Float]
 extractTemperatures vector_weatherdata =
   let weatherList = V.toList vector_weatherdata
-  in map daily_mean_temprature weatherList
+  in map daily_mean_temperature weatherList
 
-readTemperaturesFromFile :: FilePath -> IO [Float]
+createtrainingData :: [Float] -> [([Float], Float)]
+createtrainingData trainingData = [(take 7 (drop i trainingData), trainingData !! (i+7)) | i <- [0..(length trainingData - 8)]]
+
+readTemperaturesFromFile :: FilePath -> IO [([Float], Float)]
 readTemperaturesFromFile path = do
   csvData <- BL.readFile path
   case decodeByName csvData of
       Left err -> error err
-      Right (_, v) -> return (extractTemperatures v)
+      Right (_, v) -> return (createtrainingData $ extractTemperatures v)
 
-trainingTemperatures :: IO [Float]
+trainingTemperatures :: IO [([Float], Float)]
 trainingTemperatures = readTemperaturesFromFile "data/train.csv"
 
-validTemperatures :: IO [Float]
+validTemperatures :: IO [([Float], Float)]
 validTemperatures = readTemperaturesFromFile "data/valid.csv"
 
-evalTemperatures :: IO [Float]
+evalTemperatures :: IO [([Float], Float)]
 evalTemperatures = readTemperaturesFromFile "data/eval.csv"
 
 model :: T.Linear -> T.Tensor -> T.Tensor
@@ -58,14 +61,11 @@ main = do
   trainingData <- trainingTemperatures
   print $ take 5 trainingData
 
-  let pairedData = [(take 7 (drop i trainingData), trainingData !! (i+7)) | i <- [0..(length trainingData - 8)]]
-  print $ take 5 pairedData
-
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}  -- 線形モデルの初期パラメータ。inとoutは入出力の特徴の数
   randGen <- defaultRNG
   printParams init
   (trained, _) <- foldLoop (init, randGen) numIters $ \(state, randGen) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
-    let (inputData, targetData) = pairedData !! (i `mod` length pairedData)  -- データポイントを取得
+    let (inputData, targetData) = trainingData !! (i `mod` length trainingData)  -- データポイントを取得
         (_, randGen') = randn' [batchSize, numFeatures] randGen  -- ここがわからない。更新された乱数生成をrandGen'
         input = asTensor inputData :: T.Tensor
         target = asTensor targetData :: T.Tensor
