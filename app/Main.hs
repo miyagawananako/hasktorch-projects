@@ -73,7 +73,7 @@ main = do
         loss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛
     when (i `mod` 100 == 0) $ do
       putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss
-    (newParam, _) <- runStep state optimizer loss 1e-9
+    (newParam, _) <- runStep state optimizer loss 1e-6
     pure (newParam, randGen')
   printParams trained
   pure ()
