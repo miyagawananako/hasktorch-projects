@@ -29,15 +29,15 @@ extractTemperatures vector_weatherdata =
   let weatherList = V.toList vector_weatherdata
   in map daily_mean_temperature weatherList
 
-createtrainingData :: [Float] -> [([Float], Float)]
-createtrainingData trainingData = [(take 7 (drop i trainingData), trainingData !! (i+7)) | i <- [0..(length trainingData - 8)]]
+createPairedData :: [Float] -> [([Float], Float)]
+createPairedData trainingData = [(take 7 (drop i trainingData), trainingData !! (i+7)) | i <- [0..(length trainingData - 8)]]
 
 readTemperaturesFromFile :: FilePath -> IO [([Float], Float)]
 readTemperaturesFromFile path = do
   csvData <- BL.readFile path
   case decodeByName csvData of
       Left err -> error err
-      Right (_, v) -> return (createtrainingData $ extractTemperatures v)
+      Right (_, v) -> return (createPairedData $ extractTemperatures v)
 
 trainingTemperatures :: IO [([Float], Float)]
 trainingTemperatures = readTemperaturesFromFile "data/train.csv"
