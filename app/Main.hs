@@ -1,4 +1,3 @@
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE DuplicateRecordFields #-}
@@ -11,74 +10,38 @@ module Main where
 
 import Control.Monad (when)
 import Torch as T hiding (take)
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import GHC.Generics (Generic)
 import Data.ByteString.Char8 as C hiding (map, putStrLn, take, tail, filter, length, drop)
-import Data.Vector as V hiding ((++), map, putStrLn, take, tail, filter, length, drop)
-import Data.Csv (decodeByName)
-import Data.Csv (FromRecord, ToRecord, FromNamedRecord, (.:), parseNamedRecord)
-import Control.Applicative
--- import Data.Text.Encoding as Text
--- Text.encodeUtf8 を試していた
+import Data.Vector as V hiding ((++), map, take, tail, filter, length, drop)
+import Data.Csv (FromNamedRecord, (.:), parseNamedRecord, decodeByName)
 
 data WeatherData = WeatherData
   { date :: !ByteString
-  , daily_mean_temperature  :: !Float
-  } deriving (Generic,Show)
+  , daily_mean_temprature :: !Float
+  } deriving (Generic, Show)
 
 instance FromNamedRecord WeatherData where
-    parseNamedRecord r = WeatherData <$> r .: "date" <*> r .: "daily_mean_temperature"
+    parseNamedRecord r = WeatherData <$> r .: "date" <*> r .: "daily_mean_temprature"
 
--- instance FromRecord WeatherData
--- instance ToRecord WeatherData
+-- WeatherData型を受け取ったらdaily_mean_tempratureを返す 
+return_daily_mean_temprature :: WeatherData -> Float
+return_daily_mean_temprature = daily_mean_temprature
 
--- WeatherData型を受け取ったらdaily_mean_temperatureを返す 
-return_daily_mean_temperature :: WeatherData -> Float
-return_daily_mean_temperature = daily_mean_temperature
-
--- Vector WeatherDataを受け取ったらfloatのリストを返す
--- toList :: Vector a -> [a]
+-- Vector WeatherDataを受け取ったらFloatのリストを返す
 make_list :: (V.Vector WeatherData) -> [Float]
 make_list vector_weatherdata =
   let tempature_list = V.toList vector_weatherdata
-  in map return_daily_mean_temperature tempature_list
+  in map return_daily_mean_temprature tempature_list
 
 readFromFile :: FilePath -> IO [Float]
 readFromFile path = do
   csvData <- BL.readFile path
-  -- print csvData
   case decodeByName csvData of
       Left err -> do
           putStrLn err
           return []
-      Right (h, v) -> do
-          print h
-          return (make_list v)
-          -- headerは読めてる。2行目が読めていない
-
-  -- content <- B.readFile path
-  -- -- case decodeByName (BL.fromStrict content) of
-  -- --     Left err -> do
-  -- --         putStrLn err
-  -- --         return []
-  -- --     Right (_, v) -> return $ V.toList v
-
-  -- let line = C.lines content
-  -- -- print line
-  -- let withoutHeader = tail line
-  -- -- print withoutHeader
-  -- -- read :: String -> Float
-  -- let train = map (C.filter (/= '\r') . last . C.split ',') $ withoutHeader
-  -- -- print $ take 5 train
-  -- let i = [0..(length train - 8)]
-  -- -- print i
-  -- let list_8nichime = [train !! (i+7)| i <- [0..(length train - 8)]]
-  -- -- print $ take 5 list_8nichime
-  -- let dropedList = drop 3 train
-  -- print $ take 5 dropedList
-  -- -- print [(take 7 (drop i train), train !! (i+7)) | i <- [0..(length train - 8)]]
-  -- return []
+      Right (_, v) -> return (make_list v)
 
 trainingData :: IO [Float]
 trainingData = readFromFile "data/train.csv"
@@ -107,7 +70,7 @@ main :: IO ()
 main = do
   -- train :: [Float]
   train <- trainingData
-  print train
+  print $ take 5 train
 
   -- pairdata :: [([Float], Float)]
   let pairdata = [(take 7 (drop i train), train !! (i+7)) | i <- [0..(length train - 8)]]
