@@ -65,16 +65,15 @@ main = do
   randGen <- defaultRNG
   printParams init
   (trained, _) <- foldLoop (init, randGen) numIters $ \(state, randGen) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
-    -- let (input, randGen') = randn' [batchSize, numFeatures] randGen  -- バッチサイズと特徴量の数の正規分布に従うランダムなテンソルを作成しそれをinputに束縛っする。更新された乱数生成をrandGen'
     let (inputData, targetData) = pairedData !! (i `mod` length pairedData)  -- データポイントを取得
-        (_, randGen') = randn' [batchSize, numFeatures] randGen  -- ここがわからない
+        (_, randGen') = randn' [batchSize, numFeatures] randGen  -- ここがわからない。更新された乱数生成をrandGen'
         input = asTensor inputData :: T.Tensor
         target = asTensor targetData :: T.Tensor
         (y, y') = (target, model state input)  -- 真の出力yとモデルの予想出力y'を計算する
         loss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛
     when (i `mod` 100 == 0) $ do
       putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss
-    (newParam, _) <- runStep state optimizer loss 5e-3
+    (newParam, _) <- runStep state optimizer loss 1e-9
     pure (newParam, randGen')
   printParams trained
   pure ()
