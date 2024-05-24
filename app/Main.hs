@@ -15,6 +15,7 @@ import GHC.Generics (Generic)
 import Data.ByteString.Char8 as C hiding (map, putStrLn, take, tail, filter, length, drop)
 import Data.Vector as V hiding ((++), map, take, tail, filter, length, drop)
 import Data.Csv (FromNamedRecord, (.:), parseNamedRecord, decodeByName)
+import ML.Exp.Chart (drawLearningCurve) --nlp-tools
 
 data WeatherData = WeatherData
   { date :: !ByteString
@@ -64,17 +65,19 @@ main = do
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}  -- 線形モデルの初期パラメータ。inとoutは入出力の特徴の数
   randGen <- defaultRNG
   printParams init
-  (trained, _) <- foldLoop (init, randGen) numIters $ \(state, randGen) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
+  (trained, _, losses) <- foldLoop (init, randGen, []) numIters $ \(state, randGen, losses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
     let (inputData, targetData) = trainingData !! (i `mod` length trainingData)  -- データポイントを取得
         input = asTensor inputData :: T.Tensor
         target = asTensor targetData :: T.Tensor
         (y, y') = (target, model state input)  -- 真の出力yとモデルの予想出力y'を計算する
         loss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛
+        lossValue = asValue loss :: Float
     when (i `mod` 100 == 0) $ do
       putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss
     (newParam, _) <- runStep state optimizer loss 1e-6
-    pure (newParam, randGen)
+    pure (newParam, randGen, losses ++ [lossValue])
   printParams trained
+  drawLearningCurve "data/graph-weather.png" "Learning Curve" [("", losses)]
   pure ()
   where
     optimizer = GD  -- 勾配降下法を使う
