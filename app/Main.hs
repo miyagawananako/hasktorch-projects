@@ -82,6 +82,6 @@ main = do
   where
     optimizer = GD  -- 勾配降下法を使う
     defaultRNG = mkGenerator (Device CPU 0) 31415  -- デフォルトの乱数生成器
-    batchSize = 4  -- 学習するデータセットをいくつのグループに分けるか
+    batchSize = 32  -- 学習するデータセットをいくつのグループに分けるか
     numIters = 2000  -- 何回ループさせて学習させるか
     numFeatures = 7
