@@ -66,7 +66,6 @@ main = do
   printParams init
   (trained, _) <- foldLoop (init, randGen) numIters $ \(state, randGen) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
     let (inputData, targetData) = trainingData !! (i `mod` length trainingData)  -- データポイントを取得
-        (_, randGen') = randn' [batchSize, numFeatures] randGen  -- ここがわからない。更新された乱数生成をrandGen'
         input = asTensor inputData :: T.Tensor
         target = asTensor targetData :: T.Tensor
         (y, y') = (target, model state input)  -- 真の出力yとモデルの予想出力y'を計算する
@@ -74,7 +73,7 @@ main = do
     when (i `mod` 100 == 0) $ do
       putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss
     (newParam, _) <- runStep state optimizer loss 1e-6
-    pure (newParam, randGen')
+    pure (newParam, randGen)
   printParams trained
   pure ()
   where
