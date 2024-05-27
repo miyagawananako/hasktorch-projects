@@ -63,9 +63,8 @@ main = do
   print $ take 5 trainingData
 
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}  -- 線形モデルの初期パラメータ。inとoutは入出力の特徴の数
-  randGen <- defaultRNG
   printParams init
-  (trained, _, losses) <- foldLoop (init, randGen, []) numIters $ \(state, randGen, losses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
+  (trained, losses) <- foldLoop (init, []) numIters $ \(state, losses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
     let (inputData, targetData) = trainingData !! (i `mod` length trainingData)  -- データポイントを取得
         input = asTensor inputData :: T.Tensor
         target = asTensor targetData :: T.Tensor
@@ -75,13 +74,11 @@ main = do
     when (i `mod` 100 == 0) $ do
       putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss
     (newParam, _) <- runStep state optimizer loss 1e-6
-    pure (newParam, randGen, losses ++ [lossValue])
+    pure (newParam, losses ++ [lossValue])
   printParams trained
   drawLearningCurve "data/graph-weather.png" "Learning Curve" [("", losses)]
   pure ()
   where
     optimizer = GD  -- 勾配降下法を使う
-    defaultRNG = mkGenerator (Device CPU 0) 31415  -- デフォルトの乱数生成器
-    batchSize = 32  -- 学習するデータセットをいくつのグループに分けるか
     numIters = 2000  -- 何回ループさせて学習させるか
     numFeatures = 7
