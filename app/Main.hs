@@ -64,21 +64,24 @@ main = do
 
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}  -- 線形モデルの初期パラメータ。inとoutは入出力の特徴の数
   printParams init
-  (trained, losses) <- foldLoop (init, []) numIters $ \(state, losses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
-    let (inputData, targetData) = trainingData !! (i `mod` length trainingData)  -- データポイントを取得
-        input = asTensor inputData :: T.Tensor
-        target = asTensor targetData :: T.Tensor
-        (y, y') = (target, model state input)  -- 真の出力yとモデルの予想出力y'を計算する
-        loss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛
-        lossValue = asValue loss :: Float
-    when (i `mod` 100 == 0) $ do
-      putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss
-    (newParam, _) <- runStep state optimizer loss 1e-6
-    pure (newParam, losses ++ [lossValue])
+  (trained, losses) <- foldLoop (init, []) numIters $ \(state, losses) i -> do
+
+    (trained', lossValue) <- foldLoop (state, 0) (length trainingData - 7) $ \(state', lossValue) j -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
+      let (inputData, targetData) = trainingData !! (j)  -- データポイントを取得
+          input = asTensor inputData :: T.Tensor
+          target = asTensor targetData :: T.Tensor
+          (y, y') = (target, model state' input)  -- 真の出力yとモデルの予想出力y'を計算する
+          loss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛
+      when (j `mod` 100 == 0) $ do
+        putStrLn $ "Iteration: " ++ show i ++ " " ++ show j ++ " | Loss: " ++ show loss
+      (newParam, _) <- runStep state' optimizer loss 1e-6
+      pure (newParam, asValue loss)
+
+    pure (trained', losses ++ [lossValue]) -- epochごとにlossを足していけばいい
   printParams trained
   drawLearningCurve "data/graph-weather.png" "Learning Curve" [("", losses)]
   pure ()
   where
     optimizer = GD  -- 勾配降下法を使う
-    numIters = 2000  -- 何回ループさせて学習させるか
+    numIters = 300  -- 何回ループさせて学習させるか
     numFeatures = 7
