@@ -31,7 +31,7 @@ extractTemperatures vector_weatherdata =
   in map daily_mean_temperature weatherList
 
 createPairedData :: [Float] -> [([Float], Float)]
-createPairedData trainingData = [(take 7 (drop i trainingData), trainingData !! (i+7)) | i <- [0..(length trainingData - 8)]]
+createPairedData temperatureList = [(take 7 (drop i temperatureList), temperatureList !! (i+7)) | i <- [0..(length temperatureList - 8)]]
 
 readTemperaturesFromFile :: FilePath -> IO [([Float], Float)]
 readTemperaturesFromFile path = do
@@ -66,8 +66,8 @@ main = do
   printParams init
   (trained, losses) <- foldLoop (init, []) numIters $ \(state, losses) i -> do
 
-    (trained', lossValue) <- foldLoop (state, 0) (length trainingData - 7) $ \(state', lossValue) j -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
-      let (inputData, targetData) = trainingData !! (j)  -- データポイントを取得
+    (trained', lossValue) <- foldLoop (state, 0) (length trainingData) $ \(state', _) j -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
+      let (inputData, targetData) = trainingData !! (j - 1)  -- データポイントを取得
           input = asTensor inputData :: T.Tensor
           target = asTensor targetData :: T.Tensor
           (y, y') = (target, model state' input)  -- 真の出力yとモデルの予想出力y'を計算する
