@@ -68,33 +68,25 @@ main = do
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}  -- 線形モデルの初期パラメータ。inとoutは入出力の特徴の数
   printParams init
 
-  -- Training loop for trainingData
-  (trained, trainingLosses) <- foldLoop (init, []) numIters $ trainLoop trainingData
+  (trained, losses) <- foldLoop (init, []) numIters $ \(state, losses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
+    (trained', lossValue, loss) <- foldLoop (state, 0, T.zeros' [1,1]) ((length trainingData) `div` batchsize) $ \(state', _, _) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
+        let (inputData, targetData) = trainingData !! (j - 1)  -- データポイントを取得
+            input = asTensor inputData :: T.Tensor
+            target = asTensor targetData :: T.Tensor
+            (y, y') = (target, model state' input)  -- 真の出力yとモデルの予想出力y'を計算する
+            newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛     
+        pure (state', asValue newLoss, newLoss)  -- 新しいパラメータとlossを返す
+
+    when (i `mod` 50 == 0) $ do
+          putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss
+    (newParam, _) <- runStep trained' optimizer loss 1e-6
+    pure (newParam, losses ++ [lossValue]) -- epochごとにlossを足していけばいい
+
   printParams trained
-
-  -- Training loop for validData
-  (valided, validLosses) <- foldLoop (init, []) numIters $ trainLoop validData
-  printParams valided
-
-  drawLearningCurve "data/graph-weather.png" "Learning Curve" [("Training", trainingLosses), ("Validation", validLosses)]
+  drawLearningCurve "data/graph-weather.png" "Learning Curve" [("", losses)]
   pure ()
   where
     optimizer = GD  -- 勾配降下法を使う
     numIters = 300  -- 何回ループさせて学習させるか
     batchsize = 64  -- バッチサイズ
     numFeatures = 7
-
-    trainLoop dataset = \(state, losses) i -> do  -- ループでは現在の状態(state, losses)とイテレーションiが与えられる
-
-        (trained', lossValue, loss) <- foldLoop (state, 0, T.zeros' [1,1]) ((length dataset) `div` batchsize) $ \(state', _, _) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
-            let (inputData, targetData) = dataset !! (j - 1)  -- データポイントを取得
-                input = asTensor inputData :: T.Tensor
-                target = asTensor targetData :: T.Tensor
-                (y, y') = (target, model state' input)  -- 真の出力yとモデルの予想出力y'を計算する
-                newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛     
-            pure (state', asValue newLoss, newLoss)  -- 新しいパラメータとlossを返す
-
-        when (i `mod` 50 == 0) $ do
-              putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss
-        (newParam, _) <- runStep trained' optimizer loss 1e-6
-        pure (newParam, losses ++ [lossValue]) -- epochごとにlossを足していけばいい
