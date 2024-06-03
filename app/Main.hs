@@ -68,22 +68,28 @@ main = do
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}  -- 線形モデルの初期パラメータ。inとoutは入出力の特徴の数
   printParams init
 
-  (trained, losses) <- foldLoop (init, []) numIters $ \(state, losses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
-    (trained', lossValue, loss) <- foldLoop (state, 0, T.zeros' [1,1]) ((length trainingData) `div` batchsize) $ \(state', _, _) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
+  (trained, losses, lossesValid) <- foldLoop (init, [], []) numIters $ \(state, losses, lossesValid) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
+    (trained', lossValue, loss, lossValueValid, lossValid) <- foldLoop (state, 0, T.zeros' [1,1], 0, T.zeros' [1,1]) ((length trainingData) `div` batchsize) $ \(state', _, _, _, _) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
         let (inputData, targetData) = trainingData !! (j - 1)  -- データポイントを取得
             input = asTensor inputData :: T.Tensor
             target = asTensor targetData :: T.Tensor
             (y, y') = (target, model state' input)  -- 真の出力yとモデルの予想出力y'を計算する
             newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛     
-        pure (state', asValue newLoss, newLoss)  -- 新しいパラメータとlossを返す
+
+            (inputValidData, targetValidData) = validData !! (j - 1)
+            inputValid = asTensor inputValidData :: T.Tensor
+            targetValid = asTensor targetValidData :: T.Tensor
+            (yValid, yValid') = (targetValid, model state' inputValid)
+            newLossValid = mseLoss yValid yValid'
+        pure (state', asValue newLoss, newLoss, asValue newLossValid, newLossValid)  -- 新しいパラメータとlossを返す
 
     when (i `mod` 50 == 0) $ do
-          putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss
+          putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss ++ " | LossValid: " ++ show lossValid
     (newParam, _) <- runStep trained' optimizer loss 1e-6
-    pure (newParam, losses ++ [lossValue]) -- epochごとにlossを足していけばいい
+    pure (newParam, losses ++ [lossValue], lossesValid ++ [lossValueValid]) -- epochごとにlossを足していけばいい
 
   printParams trained
-  drawLearningCurve "data/graph-weather.png" "Learning Curve" [("", losses)]
+  drawLearningCurve "data/graph-weather.png" "Learning Curve" [("Training", losses), ("Validation", lossesValid)]
   pure ()
   where
     optimizer = GD  -- 勾配降下法を使う
