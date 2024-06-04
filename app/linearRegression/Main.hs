@@ -41,13 +41,10 @@ readTemperaturesFromFile path = do
       Right (_, v) -> return (createPairedData $ extractTemperatures v)
 
 trainingTemperatures :: IO [([Float], Float)]
-trainingTemperatures = readTemperaturesFromFile "data/train.csv"
+trainingTemperatures = readTemperaturesFromFile "app/linearRegression/data/train.csv"
 
 validTemperatures :: IO [([Float], Float)]
-validTemperatures = readTemperaturesFromFile "data/valid.csv"
-
-evalTemperatures :: IO [([Float], Float)]
-evalTemperatures = readTemperaturesFromFile "data/eval.csv"
+validTemperatures = readTemperaturesFromFile "app/linearRegression/data/valid.csv"
 
 model :: T.Linear -> T.Tensor -> T.Tensor
 model state input = squeezeAll $ linear state input

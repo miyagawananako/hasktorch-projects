@@ -1,1 +1,1 @@
-# linearRegression
+# hasktorch-projects

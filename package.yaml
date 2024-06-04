@@ -39,7 +39,7 @@ library:
 executables:
   linearRegression-exe:
     main:                Main.hs
-    source-dirs:         app
+    source-dirs:         app/linearRegression
     ghc-options:
     - -threaded
     - -rtsopts
