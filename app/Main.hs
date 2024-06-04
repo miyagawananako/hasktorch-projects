@@ -8,7 +8,6 @@
 
 module Main where
 
-import Control.Monad (when)
 import Torch as T hiding (take, div, index)
 import qualified Data.ByteString.Lazy as BL
 import GHC.Generics (Generic)
@@ -58,22 +57,18 @@ printParams trained = do
   putStrLn $ "Parameters:\n" ++ (show $ toDependent $ trained.weight)
   putStrLn $ "Bias:\n" ++ (show $ toDependent $ trained.bias)
 
--- pop :: [a] -> (a, [a])
--- pop (x:xs) = (x, xs)
-
 main :: IO ()
 main = do
   trainingData <- trainingTemperatures
-  print $ take 5 trainingData 
 
-  -- validData <- validTemperatures
-  -- print $ take 5 validData
+  validData <- validTemperatures
 
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}  -- 線形モデルの初期パラメータ。inとoutは入出力の特徴の数
   printParams init
 
-  (trained, losses) <- foldLoop (init, []) numIters $ \(state, losses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
+  (trained, losses, validLosses) <- foldLoop (init, [], []) numIters $ \(state, losses, validLosses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
     initRandamTrainData <- shuffleM trainingData
+    initRandamValidData <- shuffleM validData
     (trained', lossValue, loss, _) <- foldLoop (state, 0, T.zeros' [1,1], initRandamTrainData) ((length trainingData) `div` batchsize) $ \(state', _, _, randamTrainData) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
         let index = (j - 1) * batchsize
             dataList = take batchsize $ drop index randamTrainData
@@ -84,16 +79,21 @@ main = do
             newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛   
         (newParam, _) <- runStep state' optimizer newLoss 1e-6 -- パラメータ更新タイミングはバッチごと！
         pure (newParam, asValue newLoss, newLoss, randamTrainData)  -- 新しいパラメータとlossを返す
-
-    when (i `mod` 50 == 0) $ do
-          putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss 
-    pure (trained', losses ++ [lossValue]) -- epochごとにlossを足していけばいい
+    
+    let (validInputData, validTargetData) = unzip initRandamValidData
+        validInput = asTensor validInputData :: T.Tensor
+        validTarget = asTensor validTargetData :: T.Tensor
+        (validY, validY') = (validTarget, model trained' validInput)
+        newValidLoss = mseLoss validY validY'
+        validLossValue = asValue newValidLoss
+    putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss ++ " | Loss(valid): " ++ show newValidLoss
+    pure (trained', losses ++ [lossValue], validLosses ++ [validLossValue]) -- epochごとにlossを足していけばいい
 
   printParams trained
-  drawLearningCurve "data/graph-weather.png" "Learning Curve" [("Training", losses)]
+  drawLearningCurve "curve/graph-weather.png" "Learning Curve" [("Training", losses), ("Validation", validLosses)]
   pure ()
   where
     optimizer = GD  -- 勾配降下法を使う
-    numIters = 300  -- 何回ループさせて学習させるか
+    numIters = 50  -- 何回ループさせて学習させるか
     batchsize = 64  -- バッチサイズ
     numFeatures = 7
