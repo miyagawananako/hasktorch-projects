@@ -82,18 +82,18 @@ main = do
             target = asTensor targetData :: T.Tensor
             (y, y') = (target, model state' input)  -- 真の出力yとモデルの予想出力y'を計算する
             newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛   
-        pure (state', asValue newLoss, newLoss, randamTrainData)  -- 新しいパラメータとlossを返す
+        (newParam, _) <- runStep state' optimizer newLoss 1e-6 -- パラメータ更新タイミングはバッチごと！
+        pure (newParam, asValue newLoss, newLoss, randamTrainData)  -- 新しいパラメータとlossを返す
 
     when (i `mod` 50 == 0) $ do
           putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss 
-    (newParam, _) <- runStep trained' optimizer loss 1e-6 -- パラメータ更新タイミングはバッチごと！
-    pure (newParam, losses ++ [lossValue]) -- epochごとにlossを足していけばいい
+    pure (trained', losses ++ [lossValue]) -- epochごとにlossを足していけばいい
 
   printParams trained
   drawLearningCurve "data/graph-weather.png" "Learning Curve" [("Training", losses)]
   pure ()
   where
     optimizer = GD  -- 勾配降下法を使う
-    numIters = 800  -- 何回ループさせて学習させるか
+    numIters = 300  -- 何回ループさせて学習させるか
     batchsize = 64  -- バッチサイズ
     numFeatures = 7
