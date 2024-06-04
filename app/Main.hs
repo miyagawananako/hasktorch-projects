@@ -66,42 +66,34 @@ main = do
   trainingData <- trainingTemperatures
   print $ take 5 trainingData 
 
-  validData <- validTemperatures
-  print $ take 5 validData
+  -- validData <- validTemperatures
+  -- print $ take 5 validData
 
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}  -- 線形モデルの初期パラメータ。inとoutは入出力の特徴の数
   printParams init
 
-  (trained, losses, lossesValid) <- foldLoop (init, [], []) numIters $ \(state, losses, lossesValid) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
+  (trained, losses) <- foldLoop (init, []) numIters $ \(state, losses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
     initRandamTrainData <- shuffleM trainingData
-    initRandamValidData <- shuffleM validData
-    (trained', lossValue, loss, lossValueValid, lossValid, _, _) <- foldLoop (state, 0, T.zeros' [1,1], 0, T.zeros' [1,1], initRandamTrainData, initRandamValidData) ((length trainingData) `div` batchsize) $ \(state', _, _, _, _, randamTrainData, randamValidData) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
+    (trained', lossValue, loss, _) <- foldLoop (state, 0, T.zeros' [1,1], initRandamTrainData) ((length trainingData) `div` batchsize) $ \(state', _, _, randamTrainData) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
         let index = (j - 1) * batchsize
             dataList = take batchsize $ drop index randamTrainData
             (inputData, targetData) = unzip dataList
             input = asTensor inputData :: T.Tensor
             target = asTensor targetData :: T.Tensor
             (y, y') = (target, model state' input)  -- 真の出力yとモデルの予想出力y'を計算する
-            newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛     
-
-            dataListValid = take batchsize $ drop index randamValidData
-            (inputValidData, targetValidData) = unzip dataListValid
-            inputValid = asTensor inputValidData :: T.Tensor
-            targetValid = asTensor targetValidData :: T.Tensor
-            (yValid, yValid') = (targetValid, model state' inputValid)
-            newLossValid = mseLoss yValid yValid'
-        pure (state', asValue newLoss, newLoss, asValue newLossValid, newLossValid, randamTrainData, randamValidData)  -- 新しいパラメータとlossを返す
+            newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛   
+        pure (state', asValue newLoss, newLoss, randamTrainData)  -- 新しいパラメータとlossを返す
 
     when (i `mod` 50 == 0) $ do
-          putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss ++ " | LossValid: " ++ show lossValid
-    (newParam, _) <- runStep trained' optimizer loss 1e-6
-    pure (newParam, losses ++ [lossValue], lossesValid ++ [lossValueValid]) -- epochごとにlossを足していけばいい
+          putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss 
+    (newParam, _) <- runStep trained' optimizer loss 1e-6 -- パラメータ更新タイミングはバッチごと！
+    pure (newParam, losses ++ [lossValue]) -- epochごとにlossを足していけばいい
 
   printParams trained
-  drawLearningCurve "data/graph-weather.png" "Learning Curve" [("Training", losses), ("Validation", lossesValid)]
+  drawLearningCurve "data/graph-weather.png" "Learning Curve" [("Training", losses)]
   pure ()
   where
     optimizer = GD  -- 勾配降下法を使う
-    numIters = 300  -- 何回ループさせて学習させるか
+    numIters = 800  -- 何回ループさせて学習させるか
     batchsize = 64  -- バッチサイズ
     numFeatures = 7
