@@ -54,6 +54,7 @@ executables:
     - nlp-tools
     - vector
     - text
+    - random-shuffle
 
 tests:
   linearRegression-test:

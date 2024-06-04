@@ -9,13 +9,14 @@
 module Main where
 
 import Control.Monad (when)
-import Torch as T hiding (take, div)
+import Torch as T hiding (take, div, index)
 import qualified Data.ByteString.Lazy as BL
 import GHC.Generics (Generic)
-import Data.ByteString.Char8 as C hiding (map, putStrLn, take, tail, filter, length, drop)
-import Data.Vector as V hiding ((++), map, take, tail, filter, length, drop)
+import Data.ByteString.Char8 as C hiding (map, putStrLn, take, tail, filter, length, drop, unzip, index)
+import Data.Vector as V hiding ((++), map, take, tail, filter, length, drop, unzip)
 import Data.Csv (FromNamedRecord, (.:), parseNamedRecord, decodeByName)
 import ML.Exp.Chart (drawLearningCurve) --nlp-tools
+import System.Random.Shuffle (shuffleM)
 
 data WeatherData = WeatherData
   { date :: !ByteString
@@ -57,6 +58,9 @@ printParams trained = do
   putStrLn $ "Parameters:\n" ++ (show $ toDependent $ trained.weight)
   putStrLn $ "Bias:\n" ++ (show $ toDependent $ trained.bias)
 
+-- pop :: [a] -> (a, [a])
+-- pop (x:xs) = (x, xs)
+
 main :: IO ()
 main = do
   trainingData <- trainingTemperatures
@@ -69,19 +73,24 @@ main = do
   printParams init
 
   (trained, losses, lossesValid) <- foldLoop (init, [], []) numIters $ \(state, losses, lossesValid) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
-    (trained', lossValue, loss, lossValueValid, lossValid) <- foldLoop (state, 0, T.zeros' [1,1], 0, T.zeros' [1,1]) ((length trainingData) `div` batchsize) $ \(state', _, _, _, _) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
-        let (inputData, targetData) = trainingData !! (j - 1)  -- データポイントを取得
+    initRandamTrainData <- shuffleM trainingData
+    initRandamValidData <- shuffleM validData
+    (trained', lossValue, loss, lossValueValid, lossValid, _, _) <- foldLoop (state, 0, T.zeros' [1,1], 0, T.zeros' [1,1], initRandamTrainData, initRandamValidData) ((length trainingData) `div` batchsize) $ \(state', _, _, _, _, randamTrainData, randamValidData) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
+        let index = (j - 1) * batchsize
+            dataList = take batchsize $ drop index randamTrainData
+            (inputData, targetData) = unzip dataList
             input = asTensor inputData :: T.Tensor
             target = asTensor targetData :: T.Tensor
             (y, y') = (target, model state' input)  -- 真の出力yとモデルの予想出力y'を計算する
             newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛     
 
-            (inputValidData, targetValidData) = validData !! (j - 1)
+            dataListValid = take batchsize $ drop index randamValidData
+            (inputValidData, targetValidData) = unzip dataListValid
             inputValid = asTensor inputValidData :: T.Tensor
             targetValid = asTensor targetValidData :: T.Tensor
             (yValid, yValid') = (targetValid, model state' inputValid)
             newLossValid = mseLoss yValid yValid'
-        pure (state', asValue newLoss, newLoss, asValue newLossValid, newLossValid)  -- 新しいパラメータとlossを返す
+        pure (state', asValue newLoss, newLoss, asValue newLossValid, newLossValid, randamTrainData, randamValidData)  -- 新しいパラメータとlossを返す
 
     when (i `mod` 50 == 0) $ do
           putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss ++ " | LossValid: " ++ show lossValid
