@@ -54,6 +54,7 @@ executable linearRegression-exe
     , hasktorch-tools
     , linearRegression
     , nlp-tools
+    , random-shuffle
     , split
     , text
     , vector

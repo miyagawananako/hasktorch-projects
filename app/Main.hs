@@ -8,14 +8,14 @@
 
 module Main where
 
-import Control.Monad (when)
-import Torch as T hiding (take, div)
+import Torch as T hiding (take, div, index)
 import qualified Data.ByteString.Lazy as BL
 import GHC.Generics (Generic)
-import Data.ByteString.Char8 as C hiding (map, putStrLn, take, tail, filter, length, drop)
-import Data.Vector as V hiding ((++), map, take, tail, filter, length, drop)
+import Data.ByteString.Char8 as C hiding (map, putStrLn, take, tail, filter, length, drop, unzip, index)
+import Data.Vector as V hiding ((++), map, take, tail, filter, length, drop, unzip)
 import Data.Csv (FromNamedRecord, (.:), parseNamedRecord, decodeByName)
 import ML.Exp.Chart (drawLearningCurve) --nlp-tools
+import System.Random.Shuffle (shuffleM)
 
 data WeatherData = WeatherData
   { date :: !ByteString
@@ -60,39 +60,40 @@ printParams trained = do
 main :: IO ()
 main = do
   trainingData <- trainingTemperatures
-  print $ take 5 trainingData 
 
   validData <- validTemperatures
-  print $ take 5 validData
 
   init <- sample $ LinearSpec {in_features = numFeatures, out_features = 1}  -- 線形モデルの初期パラメータ。inとoutは入出力の特徴の数
   printParams init
 
-  (trained, losses, lossesValid) <- foldLoop (init, [], []) numIters $ \(state, losses, lossesValid) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
-    (trained', lossValue, loss, lossValueValid, lossValid) <- foldLoop (state, 0, T.zeros' [1,1], 0, T.zeros' [1,1]) ((length trainingData) `div` batchsize) $ \(state', _, _, _, _) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
-        let (inputData, targetData) = trainingData !! (j - 1)  -- データポイントを取得
+  (trained, losses, validLosses) <- foldLoop (init, [], []) numIters $ \(state, losses, validLosses) i -> do  -- ループでは現在の状態(state, randGen)とイテレーションiが与えられる
+    initRandamTrainData <- shuffleM trainingData
+    initRandamValidData <- shuffleM validData
+    (trained', lossValue, loss, _) <- foldLoop (state, 0, T.zeros' [1,1], initRandamTrainData) ((length trainingData) `div` batchsize) $ \(state', _, _, randamTrainData) j -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
+        let index = (j - 1) * batchsize
+            dataList = take batchsize $ drop index randamTrainData
+            (inputData, targetData) = unzip dataList
             input = asTensor inputData :: T.Tensor
             target = asTensor targetData :: T.Tensor
             (y, y') = (target, model state' input)  -- 真の出力yとモデルの予想出力y'を計算する
-            newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛     
-
-            (inputValidData, targetValidData) = validData !! (j - 1)
-            inputValid = asTensor inputValidData :: T.Tensor
-            targetValid = asTensor targetValidData :: T.Tensor
-            (yValid, yValid') = (targetValid, model state' inputValid)
-            newLossValid = mseLoss yValid yValid'
-        pure (state', asValue newLoss, newLoss, asValue newLossValid, newLossValid)  -- 新しいパラメータとlossを返す
-
-    when (i `mod` 50 == 0) $ do
-          putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss ++ " | LossValid: " ++ show lossValid
-    (newParam, _) <- runStep trained' optimizer loss 1e-6
-    pure (newParam, losses ++ [lossValue], lossesValid ++ [lossValueValid]) -- epochごとにlossを足していけばいい
+            newLoss = mseLoss y y'  -- 平均二乗誤差を計算してlossに束縛   
+        (newParam, _) <- runStep state' optimizer newLoss 1e-6 -- パラメータ更新タイミングはバッチごと！
+        pure (newParam, asValue newLoss, newLoss, randamTrainData)  -- 新しいパラメータとlossを返す
+    
+    let (validInputData, validTargetData) = unzip initRandamValidData
+        validInput = asTensor validInputData :: T.Tensor
+        validTarget = asTensor validTargetData :: T.Tensor
+        (validY, validY') = (validTarget, model trained' validInput)
+        newValidLoss = mseLoss validY validY'
+        validLossValue = asValue newValidLoss
+    putStrLn $ "Iteration: " ++ show i ++ " | Loss: " ++ show loss ++ " | Loss(valid): " ++ show newValidLoss
+    pure (trained', losses ++ [lossValue], validLosses ++ [validLossValue]) -- epochごとにlossを足していけばいい
 
   printParams trained
-  drawLearningCurve "data/graph-weather.png" "Learning Curve" [("Training", losses), ("Validation", lossesValid)]
+  drawLearningCurve "curve/graph-weather.png" "Learning Curve" [("Training", losses), ("Validation", validLosses)]
   pure ()
   where
     optimizer = GD  -- 勾配降下法を使う
-    numIters = 300  -- 何回ループさせて学習させるか
+    numIters = 50  -- 何回ループさせて学習させるか
     batchsize = 64  -- バッチサイズ
     numFeatures = 7
