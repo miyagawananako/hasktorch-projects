@@ -39,7 +39,7 @@ main = do
     showLoss 10 epoc lossValue  -- エポック数と損失数を表示。10は表示の間隔。
     u <- update model opt loss 1e-1  -- モデルを更新する
     return (u, lossValue)  --更新されたモデルと損失値を返す
-  drawLearningCurve "graph-xor.png" "Learning Curve" [("",reverse losses)]
+  drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/xor-mlp/graph-xor.png" "Learning Curve" [("",reverse losses)]
   forM_ ([[1,1],[1,0],[0,1],[0,0]::[Float]]) $ \input -> do  -- リスト[[1,1],[1,0],[0,1],[0,0]]の各要素（入力）に対して以下の操作を行います。
     putStr $ show $ input
     putStr ": "

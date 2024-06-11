@@ -65,12 +65,16 @@ executables:
     - hasktorch
     - nlp-tools
 
-  # titanicClassification-exe:
-  #   main:         Main.hs
-  #   source-dirs:  app/titanicClassification
-  #   ghc-options:  [-threaded, -rtsopts, -with-rtsopts=-N]
-  #   dependencies:
-  #   - hasktorch-tools
+  titanicClassification-exe:
+    main:         Main.hs
+    source-dirs:  app/titanicClassification
+    ghc-options:  [-threaded, -rtsopts, -with-rtsopts=-N]
+    dependencies:
+    - hasktorch-tools
+    - bytestring
+    - text
+    - cassava
+    - vector
 
 tests:
   linearRegression-test:

@@ -10,25 +10,39 @@ import Data.Maybe (isJust)
 
 -- PassengerId,Survived,Pclass,Name,Sex,Age,SibSp,Parch,Ticket,Fare,Cabin,Embarked
 data Passenger = Passenger {
-  survived :: Maybe BL.ByteString,
-  pclass :: Maybe BL.ByteString,
-  sex :: Maybe BL.ByteString,
-  age :: Maybe BL.ByteString,
-  sibSp :: Maybe BL.ByteString,
-  parch :: Maybe BL.ByteString,
-  fare :: Maybe BL.ByteString,
-  embarked :: Maybe BL.ByteString
+  survived :: Maybe Float,
+  pclass :: Maybe Float,
+  sex :: Maybe Float,  -- male, femaleを0.0, 1.0に変換する
+  age :: Maybe Float,
+  sibSp :: Maybe Float,
+  parch :: Maybe Float,
+  fare :: Maybe Float,
+  embarked :: Maybe Float  -- Q, S, Cを0.0, 1.0, 2.0に変換する
 } deriving Show
+
+-- SexをFloatに変換する関数
+sexToFloat :: BL.ByteString -> Maybe Float
+sexToFloat "male" = Just 0.0
+sexToFloat "female" = Just 1.0
+sexToFloat _ = Nothing
+
+-- EmbarkedをFloatに変換する関数
+embarkedToFloat :: BL.ByteString -> Maybe Float
+embarkedToFloat "Q" = Just 0.0
+embarkedToFloat "S" = Just 1.0
+embarkedToFloat "C" = Just 2.0
+embarkedToFloat _ = Nothing
 
 instance Csv.FromNamedRecord Passenger where
     parseNamedRecord r = Passenger <$> r Csv..: "Survived"
                                    <*> r Csv..: "Pclass"
-                                   <*> r Csv..: "Sex"
+                                   <*> (sexToFloat <$> r Csv..: "Sex")
                                    <*> r Csv..: "Age"
                                    <*> r Csv..: "SibSp"
                                    <*> r Csv..: "Parch"
                                    <*> r Csv..: "Fare"
-                                   <*> r Csv..: "Embarked"
+                                   <*> (embarkedToFloat <$> r Csv..: "Embarked")
+
 
 -- Passengerのデータが全て揃っているかどうかを判定する関数
 isComplete :: Passenger -> Bool
@@ -45,5 +59,5 @@ readDataFromFile path = do
 
 main :: IO ()
 main = do
-  trainData <- readDataFromFile "data/train.csv"
+  trainData <- readDataFromFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/train.csv"
   print trainData
