@@ -75,6 +75,8 @@ executables:
     - text
     - cassava
     - vector
+    - hasktorch
+    - nlp-tools
 
 tests:
   linearRegression-test:

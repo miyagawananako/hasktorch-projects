@@ -1,12 +1,28 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Main (main) where
 
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
-import qualified Data.Vector as V
-import Data.Maybe (isJust)
+import qualified Data.Vector as V hiding (catMaybes)
+import Data.Maybe
+
+import Prelude hiding (tanh) 
+--hasktorch
+import Torch.Tensor       (asValue)
+import Torch.Functional   (mseLoss)
+import Torch.Device       (Device(..),DeviceType(..))
+import Torch.NN           (sample)
+import Torch.Train        (update,showLoss,sumTensors)
+import Torch.Control      (mapAccumM)
+import Torch.Optim        (GD(..))
+import Torch.Tensor.TensorFactories (asTensor'')
+import Torch.Layer.MLP    (MLPHypParams(..),ActName(..),mlpLayer)
+import ML.Exp.Chart   (drawLearningCurve) --nlp-tools
 
 -- PassengerId,Survived,Pclass,Name,Sex,Age,SibSp,Parch,Ticket,Fare,Cabin,Embarked
 data Passenger = Passenger {
@@ -57,7 +73,37 @@ readDataFromFile path = do
       return V.empty -- 空のベクトルを返す
     Right (_, v) -> return $ V.filter isComplete v
 
+-- Passengerの入力に使う値をFloatのリストに変換する関数
+passengerToInputs :: Passenger -> [Float]
+passengerToInputs Passenger{..} = catMaybes [pclass, sex, age, sibSp, parch, fare, embarked]
+
+-- Passengerを([Float], Float)のペアに変換する関数
+passengerToTrainingData :: Passenger -> ([Float], Float)
+passengerToTrainingData p = (passengerToInputs p, fromMaybe 0.0 (survived p))
+
+-- Passengerのベクトルを([Float], Float)のペアのリストに変換する関数
+createTrainingList :: V.Vector Passenger -> [([Float], Float)]
+createTrainingList = map passengerToTrainingData . V.toList
+
 main :: IO ()
 main = do
-  trainData <- readDataFromFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/train.csv"
-  print trainData
+  trainVectorData <- readDataFromFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/train.csv"
+  let trainingData = createTrainingList trainVectorData
+  print trainingData
+
+  let iter = 1500::Int -- 訓練のイテレーター数
+      device = Device CPU 0  -- 使用するデバイス
+      hypParams = MLPHypParams device 7 [(8,Sigmoid),(1,Sigmoid)]  -- ニューラルネットワークのハイパーパラメータ。入力層のノード数は7。隠れ層の8ノードのSigmoid活性化関数。出力層は1ノードのSigmoid活性化関数を持つMLPを定義している。
+  initModel <- sample hypParams  -- hyperParamsに従って、初期モデルをサンプリングする。
+  ((trainedModel,_),losses) <- mapAccumM [1..iter] (initModel,GD) $ \epoc (model,opt) -> do  -- 各エポックでモデルを更新し、損失を蓄積。
+    let loss = sumTensors $ for trainingData $ \(input,output) ->
+                  let y = asTensor'' device output
+                      y' = mlpLayer model $ asTensor'' device input
+                  in mseLoss y y'  -- 平均二乗誤差を計算
+        lossValue = (asValue loss)::Float  -- 消失テンソルをFloat値に変換
+    showLoss 10 epoc lossValue  -- エポック数と損失数を表示。10は表示の間隔。
+    u <- update model opt loss 1e-5  -- モデルを更新する
+    return (u, lossValue)  --更新されたモデルと損失値を返す
+  drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/graph-titanic.png" "Learning Curve" [("",reverse losses)]
+  -- print trainedModel
+  where for = flip map  -- map関数の引数の順序を反転したもの
