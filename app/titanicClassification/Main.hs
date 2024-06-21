@@ -74,36 +74,46 @@ readDataFromFile path = do
     Right (_, v) -> return $ V.filter isComplete v
 
 -- Passengerの入力に使う値をFloatのリストに変換する関数
-passengerToInputs :: Passenger -> [Float]
-passengerToInputs Passenger{..} = catMaybes [pclass, sex, age, sibSp, parch, fare, embarked]
+passengerToFloatList :: Passenger -> [Float]
+passengerToFloatList Passenger{..} = catMaybes [pclass, sex, age, sibSp, parch, fare, embarked]
 
 -- Passengerを([Float], Float)のペアに変換する関数
-passengerToTrainingData :: Passenger -> ([Float], Float)
-passengerToTrainingData p = (passengerToInputs p, fromMaybe 0.0 (survived p))
+passengerToPair :: Passenger -> ([Float], Float)
+passengerToPair p = (passengerToFloatList p, fromMaybe 0.0 (survived p))
 
 -- Passengerのベクトルを([Float], Float)のペアのリストに変換する関数
-createTrainingList :: V.Vector Passenger -> [([Float], Float)]
-createTrainingList = map passengerToTrainingData . V.toList
+createPairList :: V.Vector Passenger -> [([Float], Float)]
+createPairList = map passengerToPair . V.toList
 
 main :: IO ()
 main = do
-  trainVectorData <- readDataFromFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/train.csv"
-  let trainingData = createTrainingList trainVectorData
-  print trainingData
+  inputVectorData <- readDataFromFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/train.csv"
+  let pairData = createPairList inputVectorData
+      (trainingData, validData) = splitAt (length pairData * 8 `div` 10) pairData
+  print (length trainingData)
+  print (length validData)
+ --数が　569, 143と出力された　->OK
 
   let iter = 1500::Int -- 訓練のイテレーター数
       device = Device CPU 0  -- 使用するデバイス
       hypParams = MLPHypParams device 7 [(8,Sigmoid),(1,Sigmoid)]  -- ニューラルネットワークのハイパーパラメータ。入力層のノード数は7。隠れ層の8ノードのSigmoid活性化関数。出力層は1ノードのSigmoid活性化関数を持つMLPを定義している。
   initModel <- sample hypParams  -- hyperParamsに従って、初期モデルをサンプリングする。
   ((trainedModel,_),losses) <- mapAccumM [1..iter] (initModel,GD) $ \epoc (model,opt) -> do  -- 各エポックでモデルを更新し、損失を蓄積。
-    let loss = sumTensors $ for trainingData $ \(input,output) ->
-                  let y = asTensor'' device output
+    let loss = sumTensors $ for trainingData $ \(input,groundTruth) ->
+                  let y = asTensor'' device groundTruth
                       y' = mlpLayer model $ asTensor'' device input
                   in mseLoss y y'  -- 平均二乗誤差を計算
         lossValue = (asValue loss)::Float  -- 消失テンソルをFloat値に変換
+    let validLoss = sumTensors $ for validData $ \(input,groundTruth) ->
+                  let y = asTensor'' device groundTruth
+                      y' = mlpLayer model $ asTensor'' device input
+                  in mseLoss y y'  -- 平均二乗誤差を計算
+        validLossValue = (asValue validLoss)::Float  -- 消失テンソルをFloat値に変換
     showLoss 10 epoc lossValue  -- エポック数と損失数を表示。10は表示の間隔。
     u <- update model opt loss 1e-5  -- モデルを更新する
-    return (u, lossValue)  --更新されたモデルと損失値を返す
-  drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/graph-titanic.png" "Learning Curve" [("",reverse losses)]
+    return (u, (lossValue, validLossValue))  --更新されたモデルと損失値を返す
+
+  let (trainLosses, validLosses) = unzip losses   -- lossesを分解する
+  drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/graph-titanic.png" "Learning Curve" [("Training", reverse trainLosses), ("Validation", reverse validLosses)]
   -- print trainedModel
   where for = flip map  -- map関数の引数の順序を反転したもの
