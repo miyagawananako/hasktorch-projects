@@ -152,11 +152,15 @@ main = do
   -- print testPairData
   let testResult = for testPairData $ \(passengerId, input) ->
         let y' = mlpLayer trainedModel $ asTensor'' device input
-        in (passengerId, asValue y'::Float)
+            passengerId' = round passengerId
+            survived' = if (asValue y'::Float) > 0.5 then 1 else 0
+        in (passengerId' :: Int, survived' :: Int)
   print testResult
 
+-- headerを追加して、CSVファイルに書き込む
   let csvData = Csv.encode $ for testResult $ \(passengerId, survived) ->
         [passengerId, survived]
+  
   BL.writeFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/submission.csv" csvData
 
   where for = flip map  -- map関数の引数の順序を反転したもの
