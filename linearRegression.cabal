@@ -76,6 +76,7 @@ executable titanicClassification-exe
     , hasktorch
     , hasktorch-tools
     , nlp-tools
+    , optional-args
     , text
     , vector
   default-language: Haskell2010

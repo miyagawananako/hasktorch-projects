@@ -23,9 +23,11 @@ import Torch.Optim        (GD(..))
 import Torch.Tensor.TensorFactories (asTensor'')
 import Torch.Layer.MLP    (MLPHypParams(..),ActName(..),mlpLayer)
 import ML.Exp.Chart   (drawLearningCurve) --nlp-tools
+import Control.Applicative ((<|>))
 
 -- PassengerId,Survived,Pclass,Name,Sex,Age,SibSp,Parch,Ticket,Fare,Cabin,Embarked
 data Passenger = Passenger {
+  passengerId :: Maybe Float,
   survived :: Maybe Float,
   pclass :: Maybe Float,
   sex :: Maybe Float,  -- male, femaleを0.0, 1.0に変換する
@@ -50,7 +52,8 @@ embarkedToFloat "C" = Just 2.0
 embarkedToFloat _ = Nothing
 
 instance Csv.FromNamedRecord Passenger where
-    parseNamedRecord r = Passenger <$> r Csv..: "Survived"
+    parseNamedRecord r = Passenger <$> r Csv..: "PassengerId"
+                                   <*> (r Csv..: "Survived" <|> pure Nothing)
                                    <*> r Csv..: "Pclass"
                                    <*> (sexToFloat <$> r Csv..: "Sex")
                                    <*> r Csv..: "Age"
@@ -73,6 +76,7 @@ readDataFromFile path = do
       return V.empty -- 空のベクトルを返す
     Right (_, v) -> return $ V.filter isComplete v
 
+-- training
 -- Passengerの入力に使う値をFloatのリストに変換する関数
 passengerToFloatList :: Passenger -> [Float]
 passengerToFloatList Passenger{..} = catMaybes [pclass, sex, age, sibSp, parch, fare, embarked]
@@ -85,14 +89,41 @@ passengerToPair p = (passengerToFloatList p, fromMaybe 0.0 (survived p))
 createPairList :: V.Vector Passenger -> [([Float], Float)]
 createPairList = map passengerToPair . V.toList
 
+-- test
+isCompleteTest :: Passenger -> Bool
+isCompleteTest Passenger{..} = all isJust [passengerId, pclass, sex, age, sibSp, parch, fare, embarked]
+
+readDataFromTestFile :: FilePath -> IO (V.Vector Passenger)
+readDataFromTestFile path = do
+  csvData <- BL.readFile path
+  case Csv.decodeByName csvData of
+    Left err -> do
+      putStrLn err
+      return V.empty -- 空のベクトルを返す
+    Right (_, v) -> return $ V.filter isCompleteTest v
+
+-- Passengerの入力に使う値をFloatのリストに変換する関数
+passengerToFloatTestList :: Passenger -> [Float]
+passengerToFloatTestList Passenger{..} = catMaybes [pclass, sex, age, sibSp, parch, fare, embarked]
+
+-- Passengerを([Float], Float)のペアに変換する関数(passengerId, [Float])
+passengerToTestPair :: Passenger -> (Float, [Float])
+passengerToTestPair p = (fromMaybe 0.0 (passengerId p), passengerToFloatTestList p)
+
+-- Passengerのベクトルを([Float], Float)のペアのリストに変換する関数
+createTestPairList :: V.Vector Passenger -> [(Float, [Float])]
+createTestPairList = map passengerToTestPair . V.toList
+
 main :: IO ()
 main = do
   inputVectorData <- readDataFromFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/train.csv"
+  print inputVectorData
+  testVectorData <- readDataFromTestFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/test.csv"
+  print testVectorData
   let pairData = createPairList inputVectorData
       (trainingData, validData) = splitAt (length pairData * 8 `div` 10) pairData
   print (length trainingData)
   print (length validData)
- --数が　569, 143と出力された　->OK
 
   let iter = 1500::Int -- 訓練のイテレーター数
       device = Device CPU 0  -- 使用するデバイス
@@ -116,4 +147,12 @@ main = do
   let (trainLosses, validLosses) = unzip losses   -- lossesを分解する
   drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/graph-titanic.png" "Learning Curve" [("Training", reverse trainLosses), ("Validation", reverse validLosses)]
   -- print trainedModel
+
+  let testPairData = createTestPairList testVectorData
+  -- print testPairData
+  let testResult = for testPairData $ \(passengerId, input) ->
+        let y' = mlpLayer trainedModel $ asTensor'' device input
+        in (passengerId, asValue y'::Float)
+  print testResult
+
   where for = flip map  -- map関数の引数の順序を反転したもの
