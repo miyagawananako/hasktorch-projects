@@ -135,13 +135,13 @@ main = do
                       y' = mlpLayer model $ asTensor'' device input
                   in mseLoss y y'  -- 平均二乗誤差を計算
         lossValue = (asValue loss)::Float  -- 消失テンソルをFloat値に変換
-    let validLoss = sumTensors $ for validData $ \(input,groundTruth) ->
-                  let y = asTensor'' device groundTruth
-                      y' = mlpLayer model $ asTensor'' device input
-                  in mseLoss y y'  -- 平均二乗誤差を計算
-        validLossValue = (asValue validLoss)::Float  -- 消失テンソルをFloat値に変換
     showLoss 10 epoc lossValue  -- エポック数と損失数を表示。10は表示の間隔。
     u <- update model opt loss 1e-5  -- モデルを更新する
+    let validLoss = sumTensors $ for validData $ \(input,groundTruth) ->
+                  let y = asTensor'' device groundTruth
+                      y' = mlpLayer (fst u) $ asTensor'' device input
+                  in mseLoss y y'  -- 平均二乗誤差を計算
+        validLossValue = (asValue validLoss)::Float  -- 消失テンソルをFloat値に変換
     return (u, (lossValue, validLossValue))  --更新されたモデルと損失値を返す
 
   let (trainLosses, validLosses) = unzip losses   -- lossesを分解する
