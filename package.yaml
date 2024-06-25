@@ -77,7 +77,6 @@ executables:
     - vector
     - hasktorch
     - nlp-tools
-    - optional-args
 
 tests:
   linearRegression-test:

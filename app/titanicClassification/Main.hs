@@ -10,6 +10,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
 import qualified Data.Vector as V hiding (catMaybes)
 import Data.Maybe
+import Control.Applicative ((<|>))
 
 import Prelude hiding (tanh) 
 --hasktorch
@@ -23,7 +24,6 @@ import Torch.Optim        (GD(..))
 import Torch.Tensor.TensorFactories (asTensor'')
 import Torch.Layer.MLP    (MLPHypParams(..),ActName(..),mlpLayer)
 import ML.Exp.Chart   (drawLearningCurve) --nlp-tools
-import Control.Applicative ((<|>))
 
 -- PassengerId,Survived,Pclass,Name,Sex,Age,SibSp,Parch,Ticket,Fare,Cabin,Embarked
 data Passenger = Passenger {
@@ -117,9 +117,9 @@ createTestPairList = map passengerToTestPair . V.toList
 main :: IO ()
 main = do
   inputVectorData <- readDataFromFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/train.csv"
-  print inputVectorData
+  -- print inputVectorData
   testVectorData <- readDataFromTestFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/test.csv"
-  print testVectorData
+  -- print testVectorData
   let pairData = createPairList inputVectorData
       (trainingData, validData) = splitAt (length pairData * 8 `div` 10) pairData
   print (length trainingData)
@@ -154,5 +154,9 @@ main = do
         let y' = mlpLayer trainedModel $ asTensor'' device input
         in (passengerId, asValue y'::Float)
   print testResult
+
+  let csvData = Csv.encode $ for testResult $ \(passengerId, survived) ->
+        [passengerId, survived]
+  BL.writeFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/submission.csv" csvData
 
   where for = flip map  -- map関数の引数の順序を反転したもの
