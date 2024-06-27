@@ -63,9 +63,9 @@ instance Csv.FromNamedRecord Passenger where
                                    <*> (embarkedToFloat <$> r Csv..: "Embarked")
 
 
--- Passengerのデータが全て揃っているかどうかを判定する関数
+-- Passengerのage以外のデータが全て揃っているかどうかを判定する関数
 isComplete :: Passenger -> Bool
-isComplete Passenger{..} = all isJust [survived, pclass, sex, age, sibSp, parch, fare, embarked]
+isComplete Passenger{..} = all isJust [survived, pclass, sex, sibSp, parch, fare, embarked]
 
 readDataFromFile :: FilePath -> IO (V.Vector Passenger)
 readDataFromFile path = do
@@ -76,18 +76,28 @@ readDataFromFile path = do
       return V.empty -- 空のベクトルを返す
     Right (_, v) -> return $ V.filter isComplete v
 
--- training
--- Passengerの入力に使う値をFloatのリストに変換する関数
-passengerToFloatList :: Passenger -> [Float]
-passengerToFloatList Passenger{..} = catMaybes [pclass, sex, age, sibSp, parch, fare, embarked]
+calculateAverageAge :: V.Vector Passenger -> Float
+calculateAverageAge passengers = 
+  let ages = catMaybes $ V.toList $ fmap age passengers
+      totalAge = sum ages
+      count = fromIntegral $ length ages
+  in if count > 0 then totalAge / count else 0.0
+
+-- Passengerの入力に使う値をFloatのリストに変換する関数（ageが欠損していたらaverageAgeを代入）
+passengerToFloatList :: Float -> Passenger -> [Float]
+passengerToFloatList averageAge Passenger{..} =
+  let age' = fromMaybe averageAge age
+  in catMaybes [pclass, sex, Just age', sibSp, parch, fare, embarked]
 
 -- Passengerを([Float], Float)のペアに変換する関数
-passengerToPair :: Passenger -> ([Float], Float)
-passengerToPair p = (passengerToFloatList p, fromMaybe 0.0 (survived p))
+passengerToPair :: Float -> Passenger -> ([Float], Float)
+passengerToPair averageAge p = (passengerToFloatList averageAge p, fromMaybe 0.0 (survived p))
 
--- Passengerのベクトルを([Float], Float)のペアのリストに変換する関数
+-- Passengerのベクトルを([Float], Float)のペアのリストに変換する関数（ageが欠損していたらaverageAgeを代入）
 createPairList :: V.Vector Passenger -> [([Float], Float)]
-createPairList = map passengerToPair . V.toList
+createPairList passengers =
+  let averageAge = calculateAverageAge passengers
+  in map (passengerToPair averageAge) $ V.toList passengers
 
 -- test
 isCompleteTest :: Passenger -> Bool
