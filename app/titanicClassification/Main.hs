@@ -63,9 +63,9 @@ instance Csv.FromNamedRecord Passenger where
                                    <*> (embarkedToFloat <$> r Csv..: "Embarked")
 
 
--- Passengerのage以外のデータが全て揃っているかどうかを判定する関数
+-- Passengerのage, fare以外のデータが全て揃っているかどうかを判定する関数
 isComplete :: Passenger -> Bool
-isComplete Passenger{..} = all isJust [survived, pclass, sex, sibSp, parch, fare, embarked]
+isComplete Passenger{..} = all isJust [survived, pclass, sex, sibSp, parch, embarked]
 
 readDataFromFile :: FilePath -> IO (V.Vector Passenger)
 readDataFromFile path = do
@@ -83,26 +83,29 @@ calculateAverageAge passengers =
       count = fromIntegral $ length ages
   in if count > 0 then totalAge / count else 0.0
 
+calculateAverageFare :: V.Vector Passenger -> Float
+calculateAverageFare passengers = 
+  let fares = catMaybes $ V.toList $ fmap fare passengers
+      totalFare = sum fares
+      count = fromIntegral $ length fares
+  in if count > 0 then totalFare / count else 0.0
+
 -- Passengerの入力に使う値をFloatのリストに変換する関数（ageが欠損していたらaverageAgeを代入）
-passengerToFloatList :: Float -> Passenger -> [Float]
-passengerToFloatList averageAge Passenger{..} =
+passengerToFloatList :: Float -> Float -> Passenger -> [Float]
+passengerToFloatList averageAge averageFare Passenger{..} =
   let age' = fromMaybe averageAge age
-  in catMaybes [pclass, sex, Just age', sibSp, parch, fare, embarked]
+      fare' = fromMaybe averageFare fare
+  in catMaybes [pclass, sex, Just age', sibSp, parch, Just fare', embarked]
 
 -- Passengerを([Float], Float)のペアに変換する関数
-passengerToPair :: Float -> Passenger -> ([Float], Float)
-passengerToPair averageAge p = (passengerToFloatList averageAge p, fromMaybe 0.0 (survived p))
+passengerToPair :: Float -> Float -> Passenger -> ([Float], Float)
+passengerToPair averageAge averageFare p = (passengerToFloatList averageAge averageFare p, fromMaybe 0.0 (survived p))
 
 -- Passengerのベクトルを([Float], Float)のペアのリストに変換する関数（ageが欠損していたらaverageAgeを代入）
-createPairList :: V.Vector Passenger -> [([Float], Float)]
-createPairList passengers =
-  let averageAge = calculateAverageAge passengers
-  in map (passengerToPair averageAge) $ V.toList passengers
+createPairList :: V.Vector Passenger -> Float -> Float -> [([Float], Float)]
+createPairList passengers averageAge averageFare = map (passengerToPair averageAge averageFare) $ V.toList passengers
 
 -- test
-isCompleteTest :: Passenger -> Bool
-isCompleteTest Passenger{..} = all isJust [passengerId, pclass, sex, age, sibSp, parch, fare, embarked]
-
 readDataFromTestFile :: FilePath -> IO (V.Vector Passenger)
 readDataFromTestFile path = do
   csvData <- BL.readFile path
@@ -110,30 +113,27 @@ readDataFromTestFile path = do
     Left err -> do
       putStrLn err
       return V.empty -- 空のベクトルを返す
-    Right (_, v) -> return $ V.filter isCompleteTest v
-
--- Passengerの入力に使う値をFloatのリストに変換する関数
-passengerToFloatTestList :: Passenger -> [Float]
-passengerToFloatTestList Passenger{..} = catMaybes [pclass, sex, age, sibSp, parch, fare, embarked]
+    Right (_, v) -> return v
 
 -- Passengerを([Float], Float)のペアに変換する関数(passengerId, [Float])
-passengerToTestPair :: Passenger -> (Float, [Float])
-passengerToTestPair p = (fromMaybe 0.0 (passengerId p), passengerToFloatTestList p)
+passengerToTestPair :: Float -> Float -> Passenger -> (Float, [Float])
+passengerToTestPair averageAge averageFare p = (fromMaybe 0.0 (passengerId p), passengerToFloatList averageAge averageFare p)
 
 -- Passengerのベクトルを([Float], Float)のペアのリストに変換する関数
-createTestPairList :: V.Vector Passenger -> [(Float, [Float])]
-createTestPairList = map passengerToTestPair . V.toList
+createTestPairList :: V.Vector Passenger -> Float -> Float -> [(Float, [Float])]
+createTestPairList passengers averageAge averageFare = map (passengerToTestPair averageAge averageFare) $ V.toList passengers
 
 main :: IO ()
 main = do
   inputVectorData <- readDataFromFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/train.csv"
-  -- print inputVectorData
-  testVectorData <- readDataFromTestFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/test.csv"
-  -- print testVectorData
-  let pairData = createPairList inputVectorData
+  let averageAge = calculateAverageAge inputVectorData
+  let averageFare = calculateAverageFare inputVectorData
+  let pairData = createPairList inputVectorData averageAge averageFare
       (trainingData, validData) = splitAt (length pairData * 8 `div` 10) pairData
   print (length trainingData)
   print (length validData)
+
+  testVectorData <- readDataFromTestFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/test.csv"
 
   let iter = 1500::Int -- 訓練のイテレーター数
       device = Device CPU 0  -- 使用するデバイス
@@ -156,10 +156,8 @@ main = do
 
   let (trainLosses, validLosses) = unzip losses   -- lossesを分解する
   drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/graph-titanic.png" "Learning Curve" [("Training", reverse trainLosses), ("Validation", reverse validLosses)]
-  -- print trainedModel
 
-  let testPairData = createTestPairList testVectorData
-  -- print testPairData
+  let testPairData = createTestPairList testVectorData averageAge averageFare
   let testResult = for testPairData $ \(passengerId, input) ->
         let y' = mlpLayer trainedModel $ asTensor'' device input
             passengerId' = round passengerId
