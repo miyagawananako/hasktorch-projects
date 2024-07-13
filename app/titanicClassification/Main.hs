@@ -11,6 +11,7 @@ import qualified Data.Csv as Csv
 import qualified Data.Vector as V hiding (catMaybes)
 import Data.Maybe
 import Control.Applicative ((<|>))
+import System.Random.Shuffle (shuffleM)
 
 import Prelude hiding (tanh) 
 --hasktorch
@@ -129,7 +130,9 @@ main = do
   let averageAge = calculateAverageAge inputVectorData
   let averageFare = calculateAverageFare inputVectorData
   let pairData = createPairList inputVectorData averageAge averageFare
-      (trainingData, validData) = splitAt (length pairData * 8 `div` 10) pairData
+      (trainingData', validData') = splitAt (length pairData * 8 `div` 10) pairData
+  trainingData <- shuffleM trainingData'
+  validData <- shuffleM validData'
   print (length trainingData)
   print (length validData)
 
@@ -144,14 +147,14 @@ main = do
                   let y = asTensor'' device groundTruth
                       y' = mlpLayer model $ asTensor'' device input
                   in mseLoss y y'  -- 平均二乗誤差を計算
-        lossValue = (asValue loss)::Float  -- 消失テンソルをFloat値に変換
+        lossValue = (asValue loss) / (fromIntegral (length trainingData) :: Float)
     showLoss 10 epoc lossValue  -- エポック数と損失数を表示。10は表示の間隔。
     u <- update model opt loss 1e-5  -- モデルを更新する
     let validLoss = sumTensors $ for validData $ \(input,groundTruth) ->
                   let y = asTensor'' device groundTruth
                       y' = mlpLayer (fst u) $ asTensor'' device input
                   in mseLoss y y'  -- 平均二乗誤差を計算
-        validLossValue = (asValue validLoss)::Float  -- 消失テンソルをFloat値に変換
+        validLossValue = (asValue validLoss) / (fromIntegral (length validData) :: Float)
     return (u, (lossValue, validLossValue))  --更新されたモデルと損失値を返す
 
   let (trainLosses, validLosses) = unzip losses   -- lossesを分解する
