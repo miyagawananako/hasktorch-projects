@@ -37,6 +37,22 @@ library
       base >=4.7 && <5
   default-language: Haskell2010
 
+executable evaluateScores-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_linearRegression
+  autogen-modules:
+      Paths_linearRegression
+  hs-source-dirs:
+      app/evaluateScores
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , hasktorch
+    , hasktorch-tools
+    , nlp-tools
+  default-language: Haskell2010
+
 executable linearRegression-exe
   main-is: Main.hs
   other-modules:
