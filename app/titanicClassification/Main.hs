@@ -25,6 +25,7 @@ import Torch.Optim        (GD(..))
 import Torch.Tensor.TensorFactories (asTensor'')
 import Torch.Layer.MLP    (MLPHypParams(..),ActName(..),mlpLayer)
 import ML.Exp.Chart   (drawLearningCurve) --nlp-tools
+import Torch.Train (saveParams, loadParams)
 
 -- PassengerId,Survived,Pclass,Name,Sex,Age,SibSp,Parch,Ticket,Fare,Cabin,Embarked
 data Passenger = Passenger {
@@ -156,6 +157,9 @@ main = do
                   in mseLoss y y'  -- 平均二乗誤差を計算
         validLossValue = (asValue validLoss) / (fromIntegral (length validData) :: Float)
     return (u, (lossValue, validLossValue))  --更新されたモデルと損失値を返す
+
+  saveParams trainedModel "app/titanicClassification/model.pt"
+  model <- loadParams hypParams "app/titanicClassification/model.pt"
 
   let (trainLosses, validLosses) = unzip losses   -- lossesを分解する
   drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/graph-titanic.png" "Learning Curve" [("Training", reverse trainLosses), ("Validation", reverse validLosses)]
