@@ -80,13 +80,17 @@ executables:
     - random-shuffle
 
   evaluateScores-exe:
-    main:         Main.hs
-    source-dirs:  app/evaluateScores
+    main:         EvaluateScores.hs
+    source-dirs:  app/titanicClassification
     ghc-options:  [-threaded, -rtsopts, -with-rtsopts=-N]
     dependencies:
     - hasktorch-tools
     - hasktorch
     - nlp-tools
+    - bytestring
+    - cassava
+    - vector
+    - random-shuffle
 
 tests:
   linearRegression-test:

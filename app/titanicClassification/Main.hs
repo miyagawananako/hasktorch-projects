@@ -6,6 +6,7 @@
 
 module Main (main) where
 
+import EvaluateScores (confusionMatrix)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
 import qualified Data.Vector as V hiding (catMaybes)
@@ -160,6 +161,9 @@ main = do
 
   saveParams trainedModel "app/titanicClassification/model.pt"
   model <- loadParams hypParams "app/titanicClassification/model.pt"
+
+  let validData'' = map (\(input, groundTruth) -> (asTensor'' device input, asTensor'' device groundTruth)) validData
+  print (confusionMatrix model validData'')
 
   let (trainLosses, validLosses) = unzip losses   -- lossesを分解する
   drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/graph-titanic.png" "Learning Curve" [("Training", reverse trainLosses), ("Validation", reverse validLosses)]
