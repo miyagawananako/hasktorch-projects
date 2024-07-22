@@ -6,7 +6,7 @@
 
 module Main (main) where
 
-import EvaluateScores (evaluateAccuracy, evaluatePrecision, evaluateRecall, confusionMatrix)
+import EvaluateScores (evaluateAccuracy, evaluatePrecision, evaluateRecall, confusionMatrix, evaluateF1Score)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
 import qualified Data.Vector as V hiding (catMaybes)
@@ -173,9 +173,14 @@ main = do
       fn = fromIntegral $ matrix !! 0 !! 1
       fp = fromIntegral $ matrix !! 1 !! 0
       tn = fromIntegral $ matrix !! 1 !! 1
-  print $ evaluateAccuracy tp fp tn fn
-  print $ evaluatePrecision tp fp 
-  print $ evaluateRecall tp fn
+  let accuracy = evaluateAccuracy tp fp tn fn
+  let precision = evaluatePrecision tp fp 
+  let recall = evaluateRecall tp fn
+  let f1Score = evaluateF1Score precision recall
+  print accuracy
+  print precision
+  print recall
+  print f1Score
 
   -- テストデータの予測
   let testPairData = createTestPairList testVectorData averageAge averageFare
