@@ -6,7 +6,7 @@
 
 module Main (main) where
 
-import EvaluateScores (confusionMatrix)
+import EvaluateScores (evaluateAccuracy, evaluatePrecision, evaluateRecall, confusionMatrix)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
 import qualified Data.Vector as V hiding (catMaybes)
@@ -155,19 +155,29 @@ main = do
     let validLoss = sumTensors $ for validData $ \(input,groundTruth) ->
                   let y = asTensor'' device groundTruth
                       y' = mlpLayer (fst u) $ asTensor'' device input
-                  in mseLoss y y'  -- 平均二乗誤差を計算
+                  in mseLoss y y'
         validLossValue = (asValue validLoss) / (fromIntegral (length validData) :: Float)
     return (u, (lossValue, validLossValue))  --更新されたモデルと損失値を返す
 
   saveParams trainedModel "app/titanicClassification/model.pt"
   model <- loadParams hypParams "app/titanicClassification/model.pt"
 
-  let validData'' = map (\(input, groundTruth) -> (asTensor'' device input, asTensor'' device groundTruth)) validData
-  print (confusionMatrix model validData'')
-
   let (trainLosses, validLosses) = unzip losses   -- lossesを分解する
   drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/graph-titanic.png" "Learning Curve" [("Training", reverse trainLosses), ("Validation", reverse validLosses)]
 
+  -- モデルの評価
+  let validData'' = map (\(input, groundTruth) -> (asTensor'' device input, asTensor'' device groundTruth)) validData
+  let matrix = confusionMatrix model validData''
+  print matrix
+  let tp = fromIntegral $ matrix !! 0 !! 0
+      fn = fromIntegral $ matrix !! 0 !! 1
+      fp = fromIntegral $ matrix !! 1 !! 0
+      tn = fromIntegral $ matrix !! 1 !! 1
+  print $ evaluateAccuracy tp fp tn fn
+  print $ evaluatePrecision tp fp 
+  print $ evaluateRecall tp fn
+
+  -- テストデータの予測
   let testPairData = createTestPairList testVectorData averageAge averageFare
   let testResult = for testPairData $ \(passengerId, input) ->
         let y' = mlpLayer trainedModel $ asTensor'' device input
