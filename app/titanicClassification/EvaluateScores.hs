@@ -7,7 +7,7 @@ evaluateAccuracy :: Float -> Float -> Float -> Float -> Float
 evaluateAccuracy tp fp tn fn = if tp + fp + tn + fn == 0 then 0 else (tp + tn) / (tp + fp + tn + fn)
 
 evaluatePrecision :: Float -> Float -> Float
-evaluatePrecision tp fp = if tp + fp == 0 then 0 else tp / (tp + fp)
+evaluatePrecision tp fp = if tp + fp == 0 then 1 else tp / (tp + fp)
 
 evaluateRecall :: Float -> Float -> Float
 evaluateRecall tp fn = if tp + fn == 0 then 0 else tp / (tp + fn)
@@ -28,6 +28,5 @@ confusionMatrix model dataset = matrix
         (0, 0) -> [[acc !! 0 !! 0, acc !! 0 !! 1], [acc !! 1 !! 0, acc !! 1 !! 1 + 1]]
         _      -> acc
 
--- F1-score for each class, micro-F1 score(accuracyと同じ), macro-F1 score and weighted F1-scoreを計算する関数を作る
 evaluateF1Score :: Float -> Float -> Float
 evaluateF1Score precision recall = if precision + recall == 0 then 0 else 2 * precision * recall / (precision + recall)

@@ -130,11 +130,9 @@ main :: IO ()
 main = do
   inputVectorData <- readDataFromFile "/home/acf16408ip/hasktorch-projects/app/titanicClassification/data/train.csv"
   let averageAge = calculateAverageAge inputVectorData
-  let averageFare = calculateAverageFare inputVectorData
-  let pairData = createPairList inputVectorData averageAge averageFare
-      (trainingData', validData') = splitAt (length pairData * 8 `div` 10) pairData
-  trainingData <- shuffleM trainingData'
-  validData <- shuffleM validData'
+      averageFare = calculateAverageFare inputVectorData
+  pairData <- shuffleM (createPairList inputVectorData averageAge averageFare)
+  let (trainingData, validData) = splitAt (length pairData * 8 `div` 10) pairData
   print (length trainingData)
   print (length validData)
 
@@ -163,7 +161,7 @@ main = do
   model <- loadParams hypParams "app/titanicClassification/model.pt"
 
   let (trainLosses, validLosses) = unzip losses   -- lossesを分解する
-  drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/graph-titanic.png" "Learning Curve" [("Training", reverse trainLosses), ("Validation", reverse validLosses)]
+  drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/titanicClassification/curve/graph-titanic.png" "Learning Curve" [("Training", reverse trainLosses), ("Validation", reverse validLosses)]
 
   -- モデルの評価
   let validData'' = map (\(input, groundTruth) -> (asTensor'' device input, asTensor'' device groundTruth)) validData
@@ -189,7 +187,6 @@ main = do
             passengerId' = round passengerId
             survived' = if (asValue y'::Float) > 0.5 then 1 else 0
         in (passengerId' :: Int, survived' :: Int)
-  print testResult
 
 -- headerを追加して、CSVファイルに書き込む
   let csvData = Csv.encode $ for testResult $ \(passengerId, survived) ->
