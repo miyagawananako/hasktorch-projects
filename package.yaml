@@ -92,6 +92,14 @@ executables:
     - vector
     - random-shuffle
 
+  word2vec-exe:
+    main:         Main.hs
+    source-dirs:  app/word2vec
+    ghc-options:  [-threaded, -rtsopts, -with-rtsopts=-N]
+    dependencies:
+    - hasktorch-tools
+    - hasktorch
+
 tests:
   linearRegression-test:
     main:                Spec.hs

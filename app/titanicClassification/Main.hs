@@ -149,7 +149,7 @@ main = do
                   in mseLoss y y'  -- 平均二乗誤差を計算
         lossValue = (asValue loss) / (fromIntegral (length trainingData) :: Float)
     showLoss 10 epoc lossValue  -- エポック数と損失数を表示。10は表示の間隔。
-    u <- update model opt loss 1e-5  -- モデルを更新する
+    u <- update model opt (loss / asTensor'' device (length trainingData)) 1e-2  -- モデルを更新する
     let validLoss = sumTensors $ for validData $ \(input,groundTruth) ->
                   let y = asTensor'' device groundTruth
                       y' = mlpLayer (fst u) $ asTensor'' device input
