@@ -99,6 +99,9 @@ executables:
     dependencies:
     - hasktorch-tools
     - hasktorch
+    - utf8-string
+    - bytestring
+    - containers
 
 tests:
   linearRegression-test:

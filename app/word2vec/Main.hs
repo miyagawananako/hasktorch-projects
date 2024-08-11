@@ -19,11 +19,16 @@ import Torch.NN (Parameterized(..), Parameter)
 import Torch.Serialize (saveParams, loadParams)
 import Torch.Tensor (Tensor, asTensor)
 import Torch.TensorFactories (eye', zeros')
+import Torch.Layer.MLP (MLPParams(..), mlpLayer)
+import Torch.Functional (Dim(..), mseLoss, softmax)
+import Torch.Optim        (foldLoop, GD(..))
+-- import Torch.Train        (update)
 
 -- your text data (try small data first)
-textFilePath = "data/sample.txt"
-modelPath =  "data/sample_embedding.params"
-wordLstPath = "data/sample_wordlst.txt"
+-- textFilePath = "app/word2vec/data/sample.txt"
+textFilePath = "app/word2vec/data/sample_mini.txt"
+modelPath =  "app/word2vec/data/sample_embedding.params"
+wordLstPath = "app/word2vec/data/sample_wordlst.txt"
 
 data EmbeddingSpec = EmbeddingSpec {
   wordNum :: Int, -- the number of words
@@ -34,23 +39,33 @@ data Embedding = Embedding {
     wordEmbedding :: Parameter
   } deriving (Show, Generic, Parameterized)
 
--- Probably you should include model and Embedding in the same data class.
-data Model = Model {
-		mlp :: MLP
-    embeddings :: Embedding
-  } deriving (Show, Generic, Parameterized)
+-- -- Probably you should include model and Embedding in the same data class.
+-- data Model = Model {
+-- 		mlp :: MLP
+--     embeddings :: Embedding
+--   } deriving (Show, Generic, Parameterized)
 
 isUnncessaryChar :: 
   Word8 ->
   Bool
-isUnncessaryChar str = str `elem` (map (head . encode)) [".", "!"]
+isUnncessaryChar str = 
+  (str >= 33 && str <= 47) ||  -- !"#$%&'()*+,-./
+  (str >= 58 && str <= 64) ||  -- :;<=>?@
+  (str >= 91 && str <= 96) ||  -- [\]^_`
+  (str >= 123 && str <= 126)   -- {|}~
+
+toLowerWord8 :: Word8 -> Word8
+toLowerWord8 w
+  | w >= 65 && w <= 90 = w + 32  -- ASCII 'A'-'Z' to 'a'-'z'
+  | otherwise = w
 
 preprocess ::
   B.ByteString -> -- input
   [[B.ByteString]]  -- wordlist per line
 preprocess texts = map (B.split (head $ encode " ")) textLines
   where
-    filteredtexts = B.pack $ filter (not . isUnncessaryChar) (B.unpack texts)
+    lowercaseTexts = B.map toLowerWord8 texts
+    filteredtexts = B.pack $ filter (not . isUnncessaryChar) (B.unpack lowercaseTexts)
     textLines = B.split (head $ encode "\n") filteredtexts
 
 wordToIndexFactory ::
@@ -64,40 +79,74 @@ toyEmbedding ::
 toyEmbedding EmbeddingSpec{..} = 
   eye' wordNum wordDim
 
+setAt :: Int -> a -> [a] -> [a]
+setAt idx val lst = take idx lst ++ [val] ++ drop (idx + 1) lst
+
+oneHotEncode :: Int -> Int -> Tensor
+oneHotEncode index size = asTensor $ setAt index 1 (zeros :: [Float])
+  where
+    zeros = replicate size 0
+
+vecBinaryAddition :: Tensor -> Tensor -> Tensor
+vecBinaryAddition vec1 vec2 = vec1 + vec2
+
+initDataSets :: [[B.ByteString]] -> [B.ByteString] -> [(Tensor, Tensor)]
+initDataSets wordLines wordlst = pairs
+  where
+      dictLength = Prelude.length wordlst
+      wordToIndex = wordToIndexFactory $ nub wordlst
+      input = concatMap createInputPairs wordlst
+      output = concatMap createOutputPairs wordlst
+      pairs = zip input output
+      createInputPairs word =
+        [oneHotEncode (wordToIndex word) dictLength]
+      createOutputPairs word = 
+        let indices = [wordToIndex word - 1, wordToIndex word + 1, wordToIndex word - 2, wordToIndex word + 2]
+            validIndices = filter (\i -> i >= 0 && i < Prelude.length wordlst) indices
+            vectors = map (\i -> oneHotEncode (wordToIndex (wordlst !! i)) dictLength) validIndices
+        in [foldl1 vecBinaryAddition vectors]
+
 
 main :: IO ()
 main = do
   -- load text file
-  texts <- B.readFile textFilePath
+  texts <- B.readFile textFilePath  -- texts :: B.Internal.ByteString
 
   -- create word lst (unique)
-  let wordLines = preprocess texts
-      wordlst = nub $ concat wordLines
-      wordToIndex = wordToIndexFactory wordlst
+  let wordLines = preprocess texts -- wordLines :: [[B.ByteString]]
+      wordlst = nub $ concat wordLines  -- wordlst :: [B.ByteString]
+      wordToIndex = wordToIndexFactory wordlst  -- wordToIndex :: B.ByteString -> Int
   print wordlst
 
   -- create embedding(wordDim × wordNum)
-  let embsddingSpec = EmbeddingSpec {wordNum = length wordlst, wordDim = 9}
-  wordEmb <- makeIndependent $ toyEmbedding embsddingSpec
-  let emb = Embedding { wordEmbedding = wordEmb }
+  let embsddingSpec = EmbeddingSpec {wordNum = length wordlst, wordDim = 9} -- emsddingSpec :: EmbeddingSpec
+  wordEmb <- makeIndependent $ toyEmbedding embsddingSpec -- wordEmb :: IndependentTensor
+  let emb = Embedding { wordEmbedding = wordEmb } -- emb :: Embedding
+
+  let trainingData = initDataSets wordLines wordlst
+  print trainingData
 
   -- save params
   saveParams emb modelPath
   -- save word list
   B.writeFile wordLstPath (B.intercalate (B.pack $ encode "\n") wordlst)
   
-  -- load params
-  initWordEmb <- makeIndependent $ zeros' [1]
-  let initEmb = Embedding {wordEmbedding = initWordEmb}
-  loadedEmb <- loadParams initEmb modelPath
+  -- load params（さっきのモデルをloadする）
+  initWordEmb <- makeIndependent $ zeros' [1]  -- initWordEmb :: IndependentTensor
+  let initEmb = Embedding {wordEmbedding = initWordEmb}  -- initEmb :: Embedding
+  loadedEmb <- loadParams initEmb modelPath  -- loadedEmb :: Embedding
+  -- print loadedEmb
 
-  let sampleTxt = B.pack $ encode "This is awesome.\nmodel is developing"
+  let sampleTxt = B.pack $ encode "This is awesome.\nmodel is developing" -- sampleTxt :: B.ByteString
   -- convert word to index
-      idxes = map (map wordToIndex) (preprocess sampleTxt)
+      idxes = map (map wordToIndex) (preprocess sampleTxt)  -- idxes :: [[Int]]
   -- convert to embedding
-      embTxt = embedding' (toDependent $ wordEmbedding loadedEmb) (asTensor idxes)
+      embTxt = embedding' (toDependent $ wordEmbedding loadedEmb) (asTensor idxes)  -- embTxt :: Tensor？
+      -- embedding' :: Tensor -> Tensor -> Tensor
+      -- toDependent :: IndependentTensor -> Tensor
+  print sampleTxt
+  print idxes  -- [[27,1,369],[369,1,369]]。Thisが27, isが1, awesomeが369。
 
   -- TODO: train models with initialized embeddings
-  
   
   return ()
