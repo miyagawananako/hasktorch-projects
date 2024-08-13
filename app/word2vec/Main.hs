@@ -90,21 +90,21 @@ oneHotEncode index size = asTensor $ setAt index 1 (zeros :: [Float])
 vecBinaryAddition :: Tensor -> Tensor -> Tensor
 vecBinaryAddition vec1 vec2 = vec1 + vec2
 
+-- input: 周辺4単語, output: 中心単語
 initDataSets :: [[B.ByteString]] -> [B.ByteString] -> [(Tensor, Tensor)]
 initDataSets wordLines wordlst = pairs
   where
       dictLength = Prelude.length wordlst
-      wordToIndex = wordToIndexFactory $ nub wordlst
+      wordToIndex = wordToIndexFactory $ nub wordlst  -- indexを生成
       input = concatMap createInputPairs wordlst
       output = concatMap createOutputPairs wordlst
       pairs = zip input output
       createInputPairs word =
-        [oneHotEncode (wordToIndex word) dictLength]
-      createOutputPairs word = 
         let indices = [wordToIndex word - 1, wordToIndex word + 1, wordToIndex word - 2, wordToIndex word + 2]
             validIndices = filter (\i -> i >= 0 && i < Prelude.length wordlst) indices
             vectors = map (\i -> oneHotEncode (wordToIndex (wordlst !! i)) dictLength) validIndices
         in [foldl1 vecBinaryAddition vectors]
+      createOutputPairs word = [oneHotEncode (wordToIndex word) dictLength]
 
 
 main :: IO ()
@@ -124,7 +124,7 @@ main = do
   let emb = Embedding { wordEmbedding = wordEmb } -- emb :: Embedding
 
   let trainingData = initDataSets wordLines wordlst
-  print trainingData
+  print $ trainingData !! 8
 
   -- save params
   saveParams emb modelPath
