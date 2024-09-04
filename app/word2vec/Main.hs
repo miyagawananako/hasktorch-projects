@@ -51,14 +51,15 @@ data Model = Model {
     embeddings :: Embedding
   } deriving (Generic, Parameterized)
 
-isUnncessaryChar :: 
+isUnnecessaryChar :: 
   Word8 ->
   Bool
-isUnncessaryChar str = 
-  (str >= 33 && str <= 47) ||  -- !"#$%&'()*+,-./
+isUnnecessaryChar str = 
+  (str /= 39 && str /= 45) &&  -- '-以外
+  ((str >= 33 && str <= 47) ||  -- !"#$%&'()*+,-./
   (str >= 58 && str <= 64) ||  -- :;<=>?@
   (str >= 91 && str <= 96) ||  -- [\]^_`
-  (str >= 123 && str <= 126)   -- {|}~
+  (str >= 123 && str <= 126))   -- {|}~
 
 toLowerWord8 :: Word8 -> Word8
 toLowerWord8 w
@@ -71,7 +72,7 @@ preprocess ::
 preprocess texts = map (B.split (head $ encode " ")) textLines
   where
     lowercaseTexts = B.map toLowerWord8 texts
-    filteredtexts = B.pack $ filter (not . isUnncessaryChar) (B.unpack lowercaseTexts)
+    filteredtexts = B.pack $ filter (not . isUnnecessaryChar) (B.unpack lowercaseTexts)
     textLines = B.split (head $ encode "\n") filteredtexts
 
 wordToIndexFactory ::
