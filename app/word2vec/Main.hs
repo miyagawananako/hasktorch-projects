@@ -22,6 +22,7 @@ import Torch.TensorFactories (eye', zeros')
 import Torch.Layer.MLP (MLPParams(..), mlpLayer)
 import Torch.Functional (Dim(..), mseLoss, softmax)
 import Torch.Optim        (foldLoop, GD(..))
+import Torch.NN (Linear(..))
 -- import Torch.Train        (update)
 
 -- your text data (try small data first)
@@ -39,11 +40,16 @@ data Embedding = Embedding {
     wordEmbedding :: Parameter
   } deriving (Show, Generic, Parameterized)
 
--- -- Probably you should include model and Embedding in the same data class.
--- data Model = Model {
--- 		mlp :: MLP
---     embeddings :: Embedding
---   } deriving (Show, Generic, Parameterized)
+data MLP = MLP
+  { layers :: [Linear],
+    nonlinearity :: Tensor -> Tensor
+  } deriving (Generic, Parameterized)
+
+-- Probably you should include model and Embedding in the same data class.
+data Model = Model {
+		mlp :: MLP,
+    embeddings :: Embedding
+  } deriving (Generic, Parameterized)
 
 isUnncessaryChar :: 
   Word8 ->
