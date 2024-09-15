@@ -15,15 +15,23 @@ import Data.List (nub)
 
 import Torch.Autograd (makeIndependent, toDependent)
 import Torch.Functional (embedding')
-import Torch.NN (Parameterized(..), Parameter)
+import Torch.NN (Parameterized(..), Parameter, linear)
 import Torch.Serialize (saveParams, loadParams)
 import Torch.Tensor (Tensor, asTensor)
 import Torch.TensorFactories (eye', zeros')
-import Torch.Layer.MLP (MLPParams(..), mlpLayer)
+import qualified Torch.Layer.MLP as MLP
 import Torch.Functional (Dim(..), mseLoss, softmax)
 import Torch.Optim        (foldLoop, GD(..))
-import Torch.NN (Linear(..))
+import Torch.NN (Linear(..), sample, LinearSpec(..))
 -- import Torch.Train        (update)
+import Torch.Tensor (Tensor)
+import Torch.Functional (relu)
+
+import Torch.Functional (matmul)
+
+import Torch.Optim (GD(..), runStep)
+import Torch.Autograd (grad)
+import Torch.Functional (mseLoss)
 
 -- your text data (try small data first)
 -- textFilePath = "app/word2vec/data/sample.txt"
@@ -47,8 +55,7 @@ data MLP = MLP
 
 -- Probably you should include model and Embedding in the same data class.
 data Model = Model {
-		mlp :: MLP,
-    embeddings :: Embedding
+    mlp :: MLP
   } deriving (Generic, Parameterized)
 
 isUnnecessaryChar :: 
@@ -114,6 +121,15 @@ initDataSets wordLines wordlst = pairs
       createOutputPairs word = [oneHotEncode (wordToIndex word) dictLength]
 
 
+-- MLPの初期化
+initMLP :: IO MLP
+initMLP = do
+  layer1 <- sample $ LinearSpec 128 64
+  layer2 <- sample $ LinearSpec 64 32
+  let layers = [layer1, layer2]
+  let nonlinearity = relu
+  return $ MLP layers nonlinearity
+
 main :: IO ()
 main = do
   -- load text file
@@ -129,6 +145,9 @@ main = do
   let embsddingSpec = EmbeddingSpec {wordNum = length wordlst, wordDim = 9} -- emsddingSpec :: EmbeddingSpec
   wordEmb <- makeIndependent $ toyEmbedding embsddingSpec -- wordEmb :: IndependentTensor
   let emb = Embedding { wordEmbedding = wordEmb } -- emb :: Embedding
+
+  mlp <- initMLP
+  let initModel = Model mlp
 
   let trainingData = initDataSets wordLines wordlst
   print $ trainingData !! 8
