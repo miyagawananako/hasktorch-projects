@@ -19,19 +19,22 @@ import Torch.NN (Parameterized(..), Parameter, linear)
 import Torch.Serialize (saveParams, loadParams)
 import Torch.Tensor (Tensor, asTensor)
 import Torch.TensorFactories (eye', zeros')
-import qualified Torch.Layer.MLP as MLP
+-- import qualified Torch.Layer.MLP as MLP
 import Torch.Functional (Dim(..), mseLoss, softmax)
 import Torch.Optim        (foldLoop, GD(..))
 import Torch.NN (Linear(..), sample, LinearSpec(..))
 -- import Torch.Train        (update)
-import Torch.Tensor (Tensor)
+-- import Torch.Tensor (Tensor)
 import Torch.Functional (relu)
 
 import Torch.Functional (matmul)
 
 import Torch.Optim (GD(..), runStep)
-import Torch.Autograd (grad)
-import Torch.Functional (mseLoss)
+-- import Torch.Autograd (grad)
+-- import Torch.Functional (mseLoss)
+import Torch.Control      (mapAccumM)
+
+import System.Random.Shuffle (shuffleM)
 
 -- your text data (try small data first)
 -- textFilePath = "app/word2vec/data/sample.txt"
@@ -49,8 +52,8 @@ data Embedding = Embedding {
   } deriving (Show, Generic, Parameterized)
 
 data MLP = MLP
-  { layers :: [Linear],
-    nonlinearity :: Tensor -> Tensor
+  { layers :: [Linear],  -- 入力テンソルに対して線形変換を適用する役割を持つ
+    nonlinearity :: Tensor -> Tensor  -- 非線形活性化関数
   } deriving (Generic, Parameterized)
 
 -- Probably you should include model and Embedding in the same data class.
@@ -130,6 +133,40 @@ initMLP = do
   let nonlinearity = relu
   return $ MLP layers nonlinearity
 
+-- -- フォワードパスの実装（通った！！！！！！）
+-- embを引数に追加した。emb = wordEmbedding (embeddings model) -- embeddingが使えなくなっている
+forward :: Model -> Tensor -> Embedding -> Tensor
+forward model input embedding = 
+  let emb = wordEmbedding embedding
+      embeddedInput = matmul input (toDependent emb)
+      mlpLayers = layers (mlp model)
+      nonlin = nonlinearity (mlp model)
+      output = foldl (\acc layer -> nonlin (linear layer acc)) embeddedInput mlpLayers
+  in output
+
+-- 学習の実装
+-- foldMのところがおかしい
+-- というか、Modelを返してもembを得られない、、、？ -> modelの更新だけで大丈夫そう
+-- train :: Model -> Embedding -> Tensor -> Tensor -> IO Model
+-- train model embedding input target = do
+--   let optimizer = GD
+--       numIters = 1000
+--       learningRate = 0.01
+--   (emb, model) <- foldLoop (embedding, model) numIters $ \(emb, mdl) i -> do  -- ループでは現在の状態(state')とイテレーションjが与えられる
+--     let output = forward mdl input embedding
+--         loss = mseLoss target output
+--         gradients = grad loss mdl
+--     (newModel, _) <- runStep mdl optimizer gradients learningRate
+--     -- (newEmb, _) <- runStep state' optimizer newLoss 1e-6 -- パラメータ更新タイミングはバッチごと！
+--     pure (emb, newModel)  -- 新しいパラメータとlossを返す
+    
+  -- foldM (\mdl _ -> do
+  --   let output = forward mdl input embedding
+  --       loss = mseLoss target output
+  --       gradients = grad loss mdl
+  --   (newModel, _) <- runStep mdl optimizer gradients learningRate
+  --   return newModel) model [1..numIters]
+
 main :: IO ()
 main = do
   -- load text file
@@ -149,8 +186,38 @@ main = do
   mlp <- initMLP
   let initModel = Model mlp
 
+  -- trainingData :: [(Tensor, Tensor)]
   let trainingData = initDataSets wordLines wordlst
   print $ trainingData !! 8
+
+  -- inputData :: [Tensor]
+  -- targetData :: [Tensor]
+  -- let (inputData, targetData) = unzip trainingData
+  -- print $ inputData !! 8
+  -- print $ targetData !! 8
+
+  let optimizer = GD
+      numIters = ((length trainingData) `div` batchsize)
+      learningRate = 0.01
+      batchsize = 32
+
+  initRandamTrainData <- shuffleM trainingData
+
+  -- train（エラーを吐く部分）
+  ((trainedModel, _, _, _),losses) <- mapAccumM [1..numIters] (initModel, optimizer, initRandamTrainData, 0) $ \epoc (model, opt, randamTrainData, index) -> do  -- 各エポックでモデルを更新し、損失を蓄積。
+    let batchIndex = (index - 1) * batchsize
+        dataList = take batchsize $ drop batchIndex randamTrainData 
+        (input, target) = unzip dataList
+        output = forward model (asTensor input) emb
+        loss = mseLoss (asTensor target) output
+    -- modelIndependentTensor <- makeIndependent (asTensor (layers (mlp model)))
+    -- let gradients = grad loss model
+        newIndex = index + 1
+    (newModel, _) <- runStep model optimizer loss learningRate
+    -- (newModel, _) <- runStep model optimizer (asTensor gradients) learningRate
+    -- showLoss 10 epoc lossValue  -- エポック数と損失数を表示。10は表示の間隔。
+    return ((newModel, opt, randamTrainData, newIndex), loss)  --更新されたモデルと損失値を返す
+
 
   -- save params
   saveParams emb modelPath

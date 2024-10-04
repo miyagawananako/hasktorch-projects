@@ -102,6 +102,7 @@ executables:
     - utf8-string
     - bytestring
     - containers
+    - random-shuffle
 
 tests:
   linearRegression-test:
