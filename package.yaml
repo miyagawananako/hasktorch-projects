@@ -103,14 +103,22 @@ executables:
     - bytestring
     - containers
 
-  rnn-exe:
+  eleman-exe:
     main:         Main.hs
-    source-dirs:  app/rnn
+    source-dirs:  app/Elman
     ghc-options:  [-threaded, -rtsopts, -with-rtsopts=-N]
     dependencies:
     - hasktorch-tools
     - hasktorch
     - mtl
+  
+  rnn-exe:
+    main:         Main.hs
+    source-dirs:  app/RNN
+    ghc-options:  [-threaded, -rtsopts, -with-rtsopts=-N]
+    dependencies:
+    - hasktorch-tools
+    - hasktorch
     
 
 tests:
