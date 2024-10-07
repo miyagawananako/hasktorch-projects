@@ -20,13 +20,9 @@ import Torch.Serialize (saveParams, loadParams)
 import Torch.Tensor (Tensor, asTensor)
 import Torch.TensorFactories (eye', zeros')
 import Torch.Functional (Dim(..), mseLoss, softmax)
-import Torch.Optim        (foldLoop, GD(..))
+import Torch.Optim        (foldLoop, GD(..), Loss, runStep)
 import Torch.NN (Linear(..), sample, LinearSpec(..))
-import Torch.Functional (relu)
-
-import Torch.Functional (matmul)
-
-import Torch.Optim (GD(..), runStep)
+import Torch.Functional (relu, matmul)
 import Torch.Control      (mapAccumM)
 
 import System.Random.Shuffle (shuffleM)
@@ -147,7 +143,7 @@ main = do
   let wordLines = preprocess texts -- wordLines :: [[B.ByteString]]
       wordlst = nub $ concat wordLines  -- wordlst :: [B.ByteString]
       wordToIndex = wordToIndexFactory wordlst  -- wordToIndex :: B.ByteString -> Int
-  print wordlst
+  -- print wordlst
 
   -- create embedding(wordDim × wordNum)
   let embsddingSpec = EmbeddingSpec {wordNum = length wordlst, wordDim = 9} -- emsddingSpec :: EmbeddingSpec
@@ -159,7 +155,7 @@ main = do
 
   -- trainingData :: [(Tensor, Tensor)]
   let trainingData = initDataSets wordLines wordlst
-  print $ trainingData !! 8
+  -- print $ trainingData !! 8
 
   let optimizer = GD
       numIters = ((length trainingData) `div` batchsize)
@@ -168,16 +164,21 @@ main = do
 
   initRandamTrainData <- shuffleM trainingData
 
+  print "before training"
+
   -- train（エラーを吐く部分）
   ((trainedModel, _, _, _),losses) <- mapAccumM [1..numIters] (initModel, optimizer, initRandamTrainData, 0) $ \epoc (model, opt, randamTrainData, index) -> do  -- 各エポックでモデルを更新し、損失を蓄積。
     let batchIndex = (index - 1) * batchsize
         dataList = take batchsize $ drop batchIndex randamTrainData 
         (input, target) = unzip dataList
         output = forward model (asTensor input) emb
-        loss = mseLoss (asTensor target) output
+        loss = mseLoss (asTensor target) output  -- loss :: Tensor
         newIndex = index + 1
-    (newModel, _) <- runStep model optimizer loss learningRate
+    (newModel, _) <- runStep model optimizer (loss :: Torch.Optim.Loss) learningRate -- loss :: Torch.Optim.Loss
+    print newIndex
     return ((newModel, opt, randamTrainData, newIndex), loss)  --更新されたモデルと損失値を返す
+
+  print "after training"
 
   -- save params
   saveParams emb modelPath
