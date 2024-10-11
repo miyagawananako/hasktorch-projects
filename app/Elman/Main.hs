@@ -3,7 +3,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Elman where
+module Main where
 
 import Control.Monad.State.Strict
 import Data.List (foldl', intersperse, scanl')
@@ -33,7 +33,7 @@ instance RecurrentCell ElmanCell where
 -- makeIndependentは、そのテンソルを独立したテンソルに変換します。
 -- 同様に、隠れ層から隠れ層への重みテンソルを生成し、w_hhに格納します。
 -- バイアステンソルを生成し、bに格納します。
--- このようにして、ElmanSpecからElmanCellをランダムに生成するための具体的な実装が提供されます。これは、ニューラルネットワークの初期化やランダムな重みの設定に非常に有用です。
+-- | このようにして、ElmanSpecからElmanCellをランダムに生成するための具体的な実装が提供されます。これは、ニューラルネットワークの初期化やランダムな重みの設定に非常に有用です。
 instance Randomizable ElmanSpec ElmanCell where
   sample ElmanSpec {..} = do
     w_ih <- makeIndependent =<< randnIO' [in_features, hidden_features]
