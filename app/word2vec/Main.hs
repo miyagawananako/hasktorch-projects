@@ -18,12 +18,13 @@ import Torch.Functional (embedding')
 import Torch.NN (Parameterized(..), Parameter, linear)
 import Torch.Serialize (saveParams, loadParams)
 import Torch.Tensor (Tensor, asTensor)
-import Torch.TensorFactories (eye', zeros')
+import Torch.TensorFactories (eye', zeros', full)
 import Torch.Functional (Dim(..), mseLoss, softmax)
-import Torch.Optim        (foldLoop, GD(..), Loss, runStep)
+import Torch.Optim        (foldLoop, GD(..), Loss, runStep, LearningRate)
 import Torch.NN (Linear(..), sample, LinearSpec(..))
 import Torch.Functional (relu, matmul)
 import Torch.Control      (mapAccumM)
+import Torch.TensorOptions (defaultOpts)
 
 import System.Random.Shuffle (shuffleM)
 
@@ -98,7 +99,7 @@ oneHotEncode index size = asTensor $ setAt index 1 (zeros :: [Float])
 vecBinaryAddition :: Tensor -> Tensor -> Tensor
 vecBinaryAddition vec1 vec2 = vec1 + vec2
 
--- input: 周辺4単語, output: 中心単語
+-- CBOW（input: 周辺4単語, output: 中心単語）
 initDataSets :: [[B.ByteString]] -> [B.ByteString] -> [(Tensor, Tensor)]
 initDataSets wordLines wordlst = pairs
   where
@@ -115,23 +116,23 @@ initDataSets wordLines wordlst = pairs
       createOutputPairs word = [oneHotEncode (wordToIndex word) dictLength]
 
 
--- MLPの初期化
+-- MLPの初期化（これが違う）
 initMLP :: IO MLP
 initMLP = do
   layer1 <- sample $ LinearSpec 128 64
   layer2 <- sample $ LinearSpec 64 32
   let layers = [layer1, layer2]
-  let nonlinearity = relu
+  let nonlinearity = relu  -- 入力値が0以下の場合は0より上の場合には出力値が入力値と同じ値となる関数
   return $ MLP layers nonlinearity
 
 -- フォワードパスの実装
 forward :: Model -> Tensor -> Embedding -> Tensor
 forward model input embedding = 
-  let emb = wordEmbedding embedding
-      embeddedInput = matmul input (toDependent emb)
-      mlpLayers = layers (mlp model)
-      nonlin = nonlinearity (mlp model)
-      output = foldl (\acc layer -> nonlin (linear layer acc)) embeddedInput mlpLayers
+  let emb = wordEmbedding embedding  -- 埋め込み行列を取得
+      embeddedInput = matmul input (toDependent emb)  -- 入力テンソルと埋め込み行列の行列乗算を行う（toDependentは通常テンソルに戻す）
+      mlpLayers = layers (mlp model)  -- モデルのMLPレイヤーを取得
+      nonlin = nonlinearity (mlp model)  -- 非線形活性化関数を取得
+      output = foldl (\acc layer -> nonlin (linear layer acc)) embeddedInput mlpLayers  -- mlpLayers（リスト）の各要素のmlpレイヤーを適用し、非線形変換を行う。accの初期値はembeddedInput
   in output
 
 main :: IO ()
@@ -159,26 +160,39 @@ main = do
 
   let optimizer = GD
       numIters = ((length trainingData) `div` batchsize)
-      learningRate = 0.01
+      learningRate = asTensor [0.01::Float]
       batchsize = 32
 
   initRandamTrainData <- shuffleM trainingData
 
   print "before training"
 
-  -- train（エラーを吐く部分）
+  -- train（エラーを吐く部分）  1個ずつ出力していく、確信を増やしていく。とりあえず直す。
   ((trainedModel, _, _, _),losses) <- mapAccumM [1..numIters] (initModel, optimizer, initRandamTrainData, 0) $ \epoc (model, opt, randamTrainData, index) -> do  -- 各エポックでモデルを更新し、損失を蓄積。
     let batchIndex = (index - 1) * batchsize
-        dataList = take batchsize $ drop batchIndex randamTrainData 
-        (input, target) = unzip dataList
-        output = forward model (asTensor input) emb
-        loss = mseLoss (asTensor target) output  -- loss :: Tensor
-        newIndex = index + 1
-    (newModel, _) <- runStep model optimizer (loss :: Torch.Optim.Loss) learningRate -- loss :: Torch.Optim.Loss
-    print newIndex
-    return ((newModel, opt, randamTrainData, newIndex), loss)  --更新されたモデルと損失値を返す
+    print "1"  -- 出力
+    let dataList = take batchsize $ drop batchIndex randamTrainData 
+    print "2"  -- 出力
+    let (input, target) = unzip dataList
+    print "3"  -- 出力
+    let output = forward model (asTensor input) emb  -- このembが更新されるべきじゃないか
+    print "4"  -- 出力
+    let loss = mseLoss (asTensor target) output  -- loss :: Tensor
+    print "5"  -- 出力
+    let newIndex = index + 1
+    print "6"  -- 出力
+    -- let lossTensor = asTensor loss
+    -- print "7"  -- 出力
+    -- let learningRateTensor = asTensor learningRate
+    -- print "8"  -- 出力
+    (newModel, _) <- runStep model optimizer (loss :: Torch.Optim.Loss) learningRate  -- loss :: Torch.Optim.Loss
+    print "9"
+    return ((newModel, opt, randamTrainData, newIndex), loss)  --更新されたモデルと損失値を返す, embも渡す？？？
 
   print "after training"
+
+  -- trainedModelだけ保存しているのがおかしい。
+  -- embを取得したい。embはembedding'関数に入れて、単語の分散表現を獲得したい
 
   -- save params
   saveParams emb modelPath
