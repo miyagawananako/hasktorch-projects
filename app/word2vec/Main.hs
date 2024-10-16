@@ -17,9 +17,9 @@ import Torch.Autograd (makeIndependent, toDependent)
 import Torch.Functional (embedding')
 import Torch.NN (Parameterized(..), Parameter, linear)
 import Torch.Serialize (saveParams, loadParams)
-import Torch.Tensor (Tensor, asTensor)
+import Torch.Tensor (Tensor, asTensor, shape, asValue)
 import Torch.TensorFactories (eye', zeros', full)
-import Torch.Functional (Dim(..), mseLoss, softmax)
+import Torch.Functional (Dim(..), mseLoss, softmax, stack)
 import Torch.Optim        (foldLoop, GD(..), Loss, runStep, LearningRate)
 import Torch.NN (Linear(..), sample, LinearSpec(..))
 import Torch.Functional (relu, matmul)
@@ -27,6 +27,7 @@ import Torch.Control      (mapAccumM)
 import Torch.TensorOptions (defaultOpts)
 
 import System.Random.Shuffle (shuffleM)
+import ML.Exp.Chart   (drawLearningCurve) --nlp-tools
 
 -- your text data (try small data first)
 -- textFilePath = "app/word2vec/data/sample.txt"
@@ -43,14 +44,18 @@ data Embedding = Embedding {
     wordEmbedding :: Parameter
   } deriving (Show, Generic, Parameterized)
 
+-- 使わない
 data MLP = MLP
   { layers :: [Linear],  -- 入力テンソルに対して線形変換を適用する役割を持つ
     nonlinearity :: Tensor -> Tensor  -- 非線形活性化関数
   } deriving (Generic, Parameterized)
 
+-- 使わない
 -- Probably you should include model and Embedding in the same data class.
 data Model = Model {
     mlp :: MLP
+    -- w_in :: Embedding,
+    -- w_out :: Embedding,
   } deriving (Generic, Parameterized)
 
 isUnnecessaryChar :: 
@@ -119,21 +124,24 @@ initDataSets wordLines wordlst = pairs
 -- MLPの初期化（これが違う）
 initMLP :: IO MLP
 initMLP = do
-  layer1 <- sample $ LinearSpec 128 64
-  layer2 <- sample $ LinearSpec 64 32
+  layer1 <- sample $ LinearSpec 9 64
+  layer2 <- sample $ LinearSpec 64 370  -- 370は単語数
   let layers = [layer1, layer2]
   let nonlinearity = relu  -- 入力値が0以下の場合は0より上の場合には出力値が入力値と同じ値となる関数
   return $ MLP layers nonlinearity
 
 -- フォワードパスの実装
-forward :: Model -> Tensor -> Embedding -> Tensor
-forward model input embedding = 
+predict :: Model -> Tensor -> Embedding -> IO Tensor
+predict model input embedding = do
   let emb = wordEmbedding embedding  -- 埋め込み行列を取得
-      embeddedInput = matmul input (toDependent emb)  -- 入力テンソルと埋め込み行列の行列乗算を行う（toDependentは通常テンソルに戻す）
-      mlpLayers = layers (mlp model)  -- モデルのMLPレイヤーを取得
-      nonlin = nonlinearity (mlp model)  -- 非線形活性化関数を取得
-      output = foldl (\acc layer -> nonlin (linear layer acc)) embeddedInput mlpLayers  -- mlpLayers（リスト）の各要素のmlpレイヤーを適用し、非線形変換を行う。accの初期値はembeddedInput
-  in output
+  -- print emb 出力 IndependentTensor {toDependent = Tensor Float [370,9] [[ 1.0000   ,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000],
+  -- print input  -- 出力できない  Not implemented for Tensor-typeの部分だった
+  let embeddedInput = matmul input (toDependent emb)  -- 入力テンソルと埋め込み行列の行列乗算を行う（toDependentは通常テンソルに戻す）
+  -- print embeddedInput  -- 出力されず　→できた
+  let mlpLayers = layers (mlp model)  -- モデルのMLPレイヤーを取得
+  let nonlin = nonlinearity (mlp model)  -- 非線形活性化関数を取得
+  let output = foldl (\acc layer -> nonlin (linear layer acc)) embeddedInput mlpLayers  -- mlpLayers（リスト）の各要素のmlpレイヤーを適用し、非線形変換を行う。accの初期値はembeddedInput
+  return output
 
 main :: IO ()
 main = do
@@ -149,7 +157,7 @@ main = do
   -- create embedding(wordDim × wordNum)
   let embsddingSpec = EmbeddingSpec {wordNum = length wordlst, wordDim = 9} -- emsddingSpec :: EmbeddingSpec
   wordEmb <- makeIndependent $ toyEmbedding embsddingSpec -- wordEmb :: IndependentTensor
-  let emb = Embedding { wordEmbedding = wordEmb } -- emb :: Embedding
+  let w_in = Embedding { wordEmbedding = wordEmb } -- w_in :: Embedding
 
   mlp <- initMLP
   let initModel = Model mlp
@@ -170,32 +178,30 @@ main = do
   -- train（エラーを吐く部分）  1個ずつ出力していく、確信を増やしていく。とりあえず直す。
   ((trainedModel, _, _, _),losses) <- mapAccumM [1..numIters] (initModel, optimizer, initRandamTrainData, 0) $ \epoc (model, opt, randamTrainData, index) -> do  -- 各エポックでモデルを更新し、損失を蓄積。
     let batchIndex = (index - 1) * batchsize
-    print "1"  -- 出力
-    let dataList = take batchsize $ drop batchIndex randamTrainData 
-    print "2"  -- 出力
+    let dataList = take batchsize $ drop batchIndex randamTrainData -- [(Tensor, Tensor)]
     let (input, target) = unzip dataList
-    print "3"  -- 出力
-    let output = forward model (asTensor input) emb  -- このembが更新されるべきじゃないか
-    print "4"  -- 出力
-    let loss = mseLoss (asTensor target) output  -- loss :: Tensor
-    print "5"  -- 出力
+    -- print $ shape (head input)  -- input::[Tensor]  [370]と出力された
+    -- print $ length input  -- 32
+    -- print $ shape target[0]  -- [Tensor]
+    output <- predict model (stack (Dim 0) input) w_in  -- このw_inが更新されるべきじゃないか
+    let loss = mseLoss (stack (Dim 0) target) output  -- loss :: Tensor
+    --  print lossの結果、　The size of tensor a (32) must match the size of tensor b (370) at non-singleton dimension 1
     let newIndex = index + 1
-    print "6"  -- 出力
     -- let lossTensor = asTensor loss
-    -- print "7"  -- 出力
     -- let learningRateTensor = asTensor learningRate
-    -- print "8"  -- 出力
     (newModel, _) <- runStep model optimizer (loss :: Torch.Optim.Loss) learningRate  -- loss :: Torch.Optim.Loss
-    print "9"
-    return ((newModel, opt, randamTrainData, newIndex), loss)  --更新されたモデルと損失値を返す, embも渡す？？？
+    let lossValue = (asValue loss)::Float
+    return ((newModel, opt, randamTrainData, newIndex), lossValue)  --更新されたモデルと損失値を返す, embも渡す？？？
+
+  drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/word2vec/graph/learning_curve.png" "Learning Curve" [("",reverse losses)]
 
   print "after training"
 
   -- trainedModelだけ保存しているのがおかしい。
-  -- embを取得したい。embはembedding'関数に入れて、単語の分散表現を獲得したい
+  -- w_inを取得したい。w_inはembedding'関数に入れて、単語の分散表現を獲得したい
 
   -- save params
-  saveParams emb modelPath
+  saveParams w_in modelPath
   -- save word list
   B.writeFile wordLstPath (B.intercalate (B.pack $ encode "\n") wordlst)
   

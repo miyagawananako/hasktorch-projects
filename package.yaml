@@ -103,6 +103,7 @@ executables:
     - bytestring
     - containers
     - random-shuffle
+    - nlp-tools
 
 tests:
   linearRegression-test:
