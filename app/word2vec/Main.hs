@@ -11,20 +11,19 @@ import GHC.Generics
 import qualified Data.ByteString.Lazy as B -- add bytestring to dependencies in package.yaml
 import Data.Word (Word8)
 import qualified Data.Map.Strict as M -- add containers to dependencies in package.yaml
-import Data.List (nub)
--- import qualified Data.HashSet as HashSet
+import Data.List (nub, sortOn)
 import qualified Data.Set as Set
+import Data.Maybe (fromMaybe)
+import Control.Monad (forM_)  -- For forM_ function
 
 import Torch.Autograd (makeIndependent, toDependent)
-import Torch.Functional (embedding', Dim(..), mseLoss, softmax, stack, squeezeDim, relu, matmul, split, transpose)
-import Torch.NN (Parameterized(..), Parameter, linear)
+import Torch.Functional (embedding', Dim(..), softmax, stack, squeezeDim, matmul, split, transpose, binaryCrossEntropyLoss')
+import Torch.NN (Parameterized(..), Parameter)
 import Torch.Serialize (saveParams, loadParams)
 import Torch.Tensor (Tensor, asTensor, shape, asValue)
-import Torch.TensorFactories (eye', zeros', full)
-import Torch.Optim        (foldLoop, GD(..), Loss, runStep, LearningRate)
-import Torch.NN (Linear(..), sample, LinearSpec(..))
+import Torch.TensorFactories (zeros', randnIO')
+import Torch.Optim        (foldLoop, GD(..), runStep)
 import Torch.Control      (mapAccumM)
-import Torch.TensorOptions (defaultOpts)
 
 import System.Random.Shuffle (shuffleM)
 import ML.Exp.Chart   (drawLearningCurve) --nlp-tools
@@ -64,12 +63,24 @@ toLowerWord8 w
   | w >= 65 && w <= 90 = w + 32  -- ASCII 'A'-'Z' to 'a'-'z'
   | otherwise = w
 
+-- -- 絵文字の範囲を判定する関数
+-- isEmoji :: Word8 -> Bool
+-- isEmoji w =
+--   (w >= 0xF0 && w <= 0xF7) ||  -- 基本的な絵文字をカバー
+--   (w >= 0xE2 && w <= 0xE3)     -- 拡張絵文字の範囲
+
+-- -- 絵文字を除去するフィルタリング関数
+-- filterEmojis :: B.ByteString -> B.ByteString
+-- filterEmojis = B.filter (not . isEmoji)
+
+
 preprocess ::
   B.ByteString -> -- input
   [[B.ByteString]]  -- wordlist per line
 preprocess texts = map (B.split (head $ encode " ")) textLines
   where
     lowercaseTexts = B.map toLowerWord8 texts
+    -- filteredEmojis = filterEmojis lowercaseTexts
     filteredtexts = B.pack $ filter (not . isUnnecessaryChar) (B.unpack lowercaseTexts)
     textLines = B.split (head $ encode "\n") filteredtexts
 
@@ -78,11 +89,9 @@ wordToIndexFactory ::
   (B.ByteString -> Int) -- function converting bytestring to index (unknown word: 0)
 wordToIndexFactory wordlst wrd = M.findWithDefault (length wordlst) wrd (M.fromList (zip wordlst [0..]))
 
-toyEmbedding ::
-  EmbeddingSpec ->
-  Tensor           -- embedding
-toyEmbedding EmbeddingSpec{..} = 
-  eye' wordNum wordDim
+-- 単語→インデックス変換
+createWordToIndexMap :: [B.ByteString] -> M.Map B.ByteString Int
+createWordToIndexMap wordlst = M.fromList $ zip wordlst [0..]
 
 setAt :: Int -> a -> [a] -> [a]
 setAt idx val lst = take idx lst ++ [val] ++ drop (idx + 1) lst
@@ -97,8 +106,8 @@ vecBinaryAddition vec1 vec2 = vec1 + vec2
 
 -- CBOW（input: 周辺4単語, output: 中心単語）
 -- inputのTensor を 4*len(wordlst)にした
-initDataSets :: [[B.ByteString]] -> [B.ByteString] -> IO [(Tensor, Tensor)]
-initDataSets wordLines wordlst = do
+initDataSets :: [B.ByteString] -> IO [(Tensor, Tensor)]
+initDataSets wordlst = do
   let dictLength = Prelude.length wordlst
       wordToIndex = wordToIndexFactory $ nub wordlst  -- indexを生成
       input = concatMap createInputPairs wordlst
@@ -113,14 +122,14 @@ initDataSets wordLines wordlst = do
   return pairs
 
 -- フォワードパスの実装
--- inputのTensor を [4*len(wordlst), batchSize]にする
+-- inputのTensor  [4*len(wordlst), batchSize]
 predict :: Model -> Tensor -> IO Tensor
 predict model input = do
   let emb_in = wordEmbedding (w_in model)
   -- print (shape input)  -- [32,4,370]
   -- print (shape (toDependent emb_in))  -- [370,9]
   let embeddedInputs = split 1 (Dim 1) (matmul input (toDependent emb_in))
-  let sumTensor = foldl1 vecBinaryAddition embeddedInputs -- ここの処理を変える
+  let sumTensor = foldl1 vecBinaryAddition embeddedInputs
   -- print (shape sumTensor)  -- [32,1,9] TODO: ここの形を[32,1,9]に変えたい dim0からdim1に変えた
   let avgTensor = sumTensor / 4
   -- print (shape avgTensor)  -- [32,1,9]
@@ -129,8 +138,51 @@ predict model input = do
   -- print (shape avgTensor)  -- [32,1,9]
   -- print (shape (toDependent emb_out)) -- [370,9]
   let output = nonlin (matmul avgTensor (transpose (Dim 0) (Dim 1) (toDependent emb_out)))  -- (32x9 and 9×370)
-  -- let output = foldl (\acc layer -> nonlin (linear layer acc)) embeddedInput mlpLayers  -- mlpLayers（リスト）の各要素のmlpレイヤーを適用し、非線形変換を行う。accの初期値はembeddedInput
+  -- print output
   return output  -- おそらく[32,1,370]
+
+  -- 単語のベクトル表現を取得する関数
+getWordVector :: Embedding -> M.Map B.ByteString Int -> B.ByteString -> Maybe Tensor
+getWordVector emb wordToIndexMap word = do
+    wordIdx <- M.lookup word wordToIndexMap
+    let wordTensor = oneHotEncode wordIdx (M.size wordToIndexMap)
+    return $ matmul wordTensor (toDependent $ wordEmbedding emb)
+
+-- コサイン類似度を計算する関数
+cosineSimilarity :: Tensor -> Tensor -> Float
+cosineSimilarity v1 v2 = 
+    let dot = asValue $ (v1 * v2)
+        norm1 = sqrt $ asValue $ (v1 * v2)
+        norm2 = sqrt $ asValue $  (v1 * v2)
+    in if norm1 == 0 || norm2 == 0 then 0
+       else dot / (norm1 * norm2)
+
+-- 最も類似度の高いN個の単語を見つける関数
+findMostSimilarWords :: Int -> Embedding -> M.Map B.ByteString Int -> B.ByteString -> IO [(B.ByteString, Float)]
+findMostSimilarWords n emb wordToIndexMap targetWord = do
+    case getWordVector emb wordToIndexMap targetWord of
+        Nothing -> return []
+        Just targetVec -> do
+            -- すべての単語との類似度を計算
+            similarities <- sequence 
+                [ do
+                    case getWordVector emb wordToIndexMap word of
+                        Nothing -> return (word, -1.0)
+                        Just wordVec -> return (word, cosineSimilarity targetVec wordVec)
+                | word <- M.keys wordToIndexMap
+                ]
+            -- 類似度でソートして上位N個を返す
+            return $ take n $ reverse $ sortOn snd $ filter (\(w, s) -> w /= targetWord) similarities
+
+-- メイン関数に追加するテスト用コード
+testSimilarity :: Embedding -> M.Map B.ByteString Int -> IO ()
+testSimilarity emb wordToIndexMap = do
+    let testWords = ["computer", "data", "program", "system", "network", "king", "queen", "drink"]
+    forM_ testWords $ \word -> do
+        putStrLn $ "\nFinding similar words for: " ++ show word
+        similar <- findMostSimilarWords 10 emb wordToIndexMap (B.pack $ encode word)
+        forM_ similar $ \(w, score) -> 
+            putStrLn $ "  " ++ show w ++ ": " ++ show (score * 100) ++ "%"
 
 main :: IO ()
 main = do
@@ -139,48 +191,47 @@ main = do
 
   -- create word lst (unique)
   let wordLines' = preprocess texts -- wordLines :: [[B.ByteString]]
-  let (wordLines, _) = splitAt (length wordLines' * 1 `div` 100) wordLines'
+  let (wordLines, _) = splitAt (length wordLines' * 1 `div` 10) wordLines'
   let wordlst = Set.toList . Set.fromList . concat $ wordLines
   let wordToIndex = wordToIndexFactory wordlst  -- wordToIndex :: B.ByteString -> Int
+      wordToIndexMap = createWordToIndexMap wordlst
+  print wordToIndexMap -- [(word, index)]
 
   -- create embedding(wordDim × wordNum)
   let embsddingSpec = EmbeddingSpec {wordNum = length wordlst, wordDim = 9} -- emsddingSpec :: EmbeddingSpec
-  wordEmb <- makeIndependent $ toyEmbedding embsddingSpec -- wordEmb :: IndependentTensor
+  initRandomTensor <- randnIO' [wordNum embsddingSpec, wordDim embsddingSpec]
+  wordEmb <- makeIndependent initRandomTensor
   let initW_in = Embedding { wordEmbedding = wordEmb } -- w_in :: Embedding
       initW_out = Embedding { wordEmbedding = wordEmb }
       initModel = Model { w_in = initW_in, w_out = initW_out }
 
   -- trainingData :: [(Tensor, Tensor)]
-  trainingData' <- initDataSets wordLines wordlst
+  trainingData' <- initDataSets wordlst
   let trainingData = drop 2 (take (length trainingData' - 2) trainingData')  -- 最初と最後だけ削除
-  -- print $ trainingData !! 8 -- ここの出力がなかなか出てこない（データ10%だと大丈夫だった）
 
   let optimizer = GD
-      numIters = 5
-      learningRate = asTensor [0.1::Float]
+      numIters = 10
+      learningRate = asTensor (0.1::Float)
       batchsize = 2048
 
-  -- train 1個ずつ出力していく、確信を増やしていく。とりあえず直す。
-  (trainedModel', _, losses') <- foldLoop (initModel, optimizer, []) numIters $ \(model', opt, lossesList) i -> do
+  -- -- train 1個ずつ出力していく、確信を増やしていく。とりあえず直す。
+  (trainedModel', losses') <- foldLoop (initModel, []) numIters $ \(model', lossesList) i -> do
     initRandamTrainData <- shuffleM trainingData
-    ((trainedModel, _, _, _),losses) <- mapAccumM [1..((length trainingData) `div` batchsize)] (model', opt, initRandamTrainData, 0) $ \epoc (model, opt, randamTrainData, index) -> do
+    ((trainedModel, _, _),losses) <- mapAccumM [1..((length trainingData) `div` batchsize)] (model', initRandamTrainData, 0) $ \epoc (model, randamTrainData, index) -> do
       let batchIndex = (index - 1) * batchsize
-      let dataList = take batchsize $ drop batchIndex randamTrainData -- [(Tensor, Tensor)]
+      let dataList = take batchsize $ drop batchIndex randamTrainData
       let (input, target) = unzip dataList
       output <- predict model (stack (Dim 0) input)
-      let loss = (mseLoss (stack (Dim 0) target) (squeezeDim 1 output)) / (asTensor (length dataList))  -- loss :: Tensor lossはバッチサイズで割るべきなのでは。→割った
+      let loss = binaryCrossEntropyLoss' (stack (Dim 0) target) (squeezeDim 1 output)
       let newIndex = index + 1
-      print index
-      (newModel, _) <- runStep model optimizer loss learningRate  -- loss :: Torch.Optim.Loss（バッチごとに更新する）
+      (newModel, _) <- runStep model optimizer loss learningRate
       let lossValue = (asValue loss)::Float
-      return ((newModel, opt, randamTrainData, newIndex), lossValue)  --更新されたモデルと損失値を返す, embも渡す？？？
+      print newIndex
+      return ((newModel, randamTrainData, newIndex), lossValue)
     let avgLoss = sum losses / fromIntegral (length losses)
-    -- print (w_in model)  -- ちゃんと更新はされている
-    pure (trainedModel, opt,  lossesList ++ [avgLoss]) 
+    pure (trainedModel, lossesList ++ [avgLoss]) 
 
   drawLearningCurve "/home/acf16408ip/hasktorch-projects/app/word2vec/graph/learning_curve.png" "Learning Curve" [("",reverse losses')]
-
-  -- w_inはembedding'関数に入れて、単語の分散表現を獲得したい
 
   -- save params
   saveParams (w_in trainedModel') modelPath
@@ -188,10 +239,11 @@ main = do
   B.writeFile wordLstPath (B.intercalate (B.pack $ encode "\n") wordlst)
   
   -- load params（さっきのモデルをloadする）
-  initWordEmb <- makeIndependent $ zeros' [1]  -- initWordEmb :: IndependentTensor
-  let initEmb = Embedding {wordEmbedding = initWordEmb}  -- initEmb :: Embedding
-  loadedEmb <- loadParams initEmb modelPath  -- loadedEmb :: Embedding
+  -- initWordEmb <- makeIndependent $ zeros' [1]  -- initWordEmb :: IndependentTensor
+  -- let initEmb = Embedding {wordEmbedding = initWordEmb}  -- initEmb :: Embedding
+  -- loadedEmb <- loadParams initEmb modelPath  -- loadedEmb :: Embedding
   -- print loadedEmb
+  let loadedEmb = w_in trainedModel'
 
   let sampleTxt = B.pack $ encode "This is awesome.\nmodel is developing" -- sampleTxt :: B.ByteString
   -- convert word to index
@@ -202,7 +254,8 @@ main = do
       -- toDependent :: IndependentTensor -> Tensor
   print sampleTxt
   print idxes  -- [[27,1,369],[369,1,369]]。Thisが27, isが1, awesomeが369。
+  print embTxt
 
-  -- TODO: train models with initialized embeddings
+  testSimilarity loadedEmb wordToIndexMap
   
   return ()
