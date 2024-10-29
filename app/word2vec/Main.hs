@@ -22,16 +22,21 @@ import Torch.NN (Parameterized(..), Parameter)
 import Torch.Serialize (saveParams, loadParams)
 import Torch.Tensor (Tensor, asTensor, shape, asValue)
 import Torch.TensorFactories (zeros', randnIO')
-import Torch.Optim        (foldLoop, GD(..), runStep)
+import Torch.Optim        (foldLoop, GD(..), runStep, mkAdam)
 import Torch.Control      (mapAccumM)
 
 import System.Random.Shuffle (shuffleM)
 import ML.Exp.Chart   (drawLearningCurve) --nlp-tools
 
 -- your text data (try small data first)
+textFilePath :: FilePath
 textFilePath = "app/word2vec/data/sample.txt"
 -- textFilePath = "app/word2vec/data/sample_mini.txt"
+
+modelPath :: FilePath
 modelPath =  "app/word2vec/data/sample_embedding.params"
+
+wordLstPath :: FilePath
 wordLstPath = "app/word2vec/data/sample_wordlst.txt"
 
 data EmbeddingSpec = EmbeddingSpec {
@@ -106,34 +111,45 @@ vecBinaryAddition vec1 vec2 = vec1 + vec2
 
 -- CBOW（input: 周辺4単語, output: 中心単語）
 -- inputのTensor を 4*len(wordlst)にした
-initDataSets :: [B.ByteString] -> IO [(Tensor, Tensor)]
-initDataSets wordlst = do
+initDataSets :: [B.ByteString] -> [B.ByteString] -> (B.ByteString -> Int) -> IO [(Tensor, Tensor)]
+initDataSets wordOrderLst wordlst wordToIndex = do
   let dictLength = Prelude.length wordlst
-      wordToIndex = wordToIndexFactory $ nub wordlst  -- indexを生成
-      input = concatMap createInputPairs wordlst
-      output = concatMap createOutputPairs wordlst
+      indexOrderLst = map wordToIndex wordOrderLst
+      input = concatMap createInputPairs [2..(length indexOrderLst - 3)]
+      output = concatMap createOutputPairs [2..(length indexOrderLst - 3)]
       pairs = zip input output
-      createInputPairs word =
-        let indices = [wordToIndex word - 1, wordToIndex word + 1, wordToIndex word - 2, wordToIndex word + 2]
-            validIndices = filter (\i -> i >= 0 && i < Prelude.length wordlst) indices
-            vectors = map (\i -> oneHotEncode (wordToIndex (wordlst !! i)) dictLength) validIndices
-        in [stack (Dim 0) vectors]   -- []リストなのか危うい。リスト外したほうがいいかも
-      createOutputPairs word = [oneHotEncode (wordToIndex word) dictLength]
+      createInputPairs pos =
+        [asTensor [indexOrderLst !! (pos-2), 
+                  indexOrderLst !! (pos-1), 
+                  indexOrderLst !! (pos+1), 
+                  indexOrderLst !! (pos+2)]]
+      createOutputPairs pos = 
+        [oneHotEncode (indexOrderLst !! pos) dictLength]
+  -- print $ pairs !! 0
+  -- print $ shape (fst (pairs !! 10))
+  -- print indexOrderLst
+  -- print $ (fst (pairs !! 4))  -- 例：　Tensor Int64 [4] [ 9,  11,  8,  12]、しっかりとindexが取り出せている
+  -- print $ (snd (pairs !! 4))  -- 作れていそう
   return pairs
 
 -- フォワードパスの実装
 -- inputのTensor  [4*len(wordlst), batchSize]
+-- embedding' :: Tensor(weights) -> Tensor(indeices) -> Tensor(output)
 predict :: Model -> Tensor -> IO Tensor
 predict model input = do
   let emb_in = wordEmbedding (w_in model)
   -- print (shape input)  -- [32,4,370]
   -- print (shape (toDependent emb_in))  -- [370,9]
-  let embeddedInputs = split 1 (Dim 1) (matmul input (toDependent emb_in))
+  -- let embeddedInputs = split 1 (Dim 1) (matmul input (toDependent emb_in)) -- TODO: ここでやっていることを変える
+  let embeddedInputs = split 1 (Dim 1) (embedding' (toDependent emb_in) input)
+  -- print embeddedInputs
   let sumTensor = foldl1 vecBinaryAddition embeddedInputs
-  -- print (shape sumTensor)  -- [32,1,9] TODO: ここの形を[32,1,9]に変えたい dim0からdim1に変えた
-  let avgTensor = sumTensor / 4
+  -- print sumTensor  -- しっかりと足し合わされていることを確認した
+  -- print (shape sumTensor)  -- [32,1,9] ここの形を[32,1,9]に変えるために、dim0からdim1に変えた
+  let avgTensor = sumTensor / 4  -- しっかりと/4になっていた
+  -- print avgTensor
   -- print (shape avgTensor)  -- [32,1,9]
-  let nonlin = softmax (Dim 0)
+  let nonlin = softmax (Dim 2)  -- あっていそう
   let emb_out = wordEmbedding (w_out model)
   -- print (shape avgTensor)  -- [32,1,9]
   -- print (shape (toDependent emb_out)) -- [370,9]
@@ -141,7 +157,7 @@ predict model input = do
   -- print output
   return output  -- おそらく[32,1,370]
 
-  -- 単語のベクトル表現を取得する関数
+  -- 単語のベクトル表現を取得する関数(これもembedding'関数を使えばいい気がする)
 getWordVector :: Embedding -> M.Map B.ByteString Int -> B.ByteString -> Maybe Tensor
 getWordVector emb wordToIndexMap word = do
     wordIdx <- M.lookup word wordToIndexMap
@@ -191,27 +207,29 @@ main = do
 
   -- create word lst (unique)
   let wordLines' = preprocess texts -- wordLines :: [[B.ByteString]]
-  let (wordLines, _) = splitAt (length wordLines' * 1 `div` 10) wordLines'
-  let wordlst = Set.toList . Set.fromList . concat $ wordLines
-  let wordToIndex = wordToIndexFactory wordlst  -- wordToIndex :: B.ByteString -> Int
+  let (wordLines, _) = splitAt (length wordLines' * 1 `div` 100) wordLines'
+  let wordOrderLst = concat wordLines
+  let wordlst = Set.toList $ Set.fromList wordOrderLst  -- このsetは昇順になるらしい
+  let wordToIndex = wordToIndexFactory wordlst  -- wordToIndex :: B.ByteString -> Int TODO: let f = wordToIndex "hello"  -- 単語"hello"のインデックスを取得できるので活用する！
       wordToIndexMap = createWordToIndexMap wordlst
-  print wordToIndexMap -- [(word, index)]
+  -- print wordToIndexMap -- [(word, index)]
 
   -- create embedding(wordDim × wordNum)
   let embsddingSpec = EmbeddingSpec {wordNum = length wordlst, wordDim = 9} -- emsddingSpec :: EmbeddingSpec
   initRandomTensor <- randnIO' [wordNum embsddingSpec, wordDim embsddingSpec]
   wordEmb <- makeIndependent initRandomTensor
   let initW_in = Embedding { wordEmbedding = wordEmb } -- w_in :: Embedding
-      initW_out = Embedding { wordEmbedding = wordEmb }
+      initW_out = Embedding { wordEmbedding = wordEmb }  -- 同じ初期化で良いのか？
       initModel = Model { w_in = initW_in, w_out = initW_out }
 
   -- trainingData :: [(Tensor, Tensor)]
-  trainingData' <- initDataSets wordlst
-  let trainingData = drop 2 (take (length trainingData' - 2) trainingData')  -- 最初と最後だけ削除
+  -- trainingData' <- initDataSets wordlst
+  trainingData' <- initDataSets wordOrderLst wordlst wordToIndex
+  let trainingData = drop 2 (take (length trainingData' - 2) trainingData')  -- 最初と最後だけ削除（ここがうまく機能しなくなったかも、なぜ）
 
-  let optimizer = GD
-      numIters = 10
-      learningRate = asTensor (0.1::Float)
+  let optimizer = mkAdam 0 0.9 0.999 (flattenParameters initModel)
+      numIters = 5
+      learningRate = asTensor (0.01::Float)  -- TODO: 適切な値を検討
       batchsize = 2048
 
   -- -- train 1個ずつ出力していく、確信を増やしていく。とりあえず直す。
@@ -245,16 +263,16 @@ main = do
   -- print loadedEmb
   let loadedEmb = w_in trainedModel'
 
-  let sampleTxt = B.pack $ encode "This is awesome.\nmodel is developing" -- sampleTxt :: B.ByteString
-  -- convert word to index
-      idxes = map (map wordToIndex) (preprocess sampleTxt)  -- idxes :: [[Int]]
-  -- convert to embedding
-      embTxt = embedding' (toDependent $ wordEmbedding loadedEmb) (asTensor idxes)  -- embTxt :: Tensor？
-      -- embedding' :: Tensor -> Tensor -> Tensor
-      -- toDependent :: IndependentTensor -> Tensor
-  print sampleTxt
-  print idxes  -- [[27,1,369],[369,1,369]]。Thisが27, isが1, awesomeが369。
-  print embTxt
+  -- let sampleTxt = B.pack $ encode "This is awesome.\nmodel is developing" -- sampleTxt :: B.ByteString
+  -- -- convert word to index
+  --     idxes = map (map wordToIndex) (preprocess sampleTxt)  -- idxes :: [[Int]]
+  -- -- convert to embedding
+  --     embTxt = embedding' (toDependent $ wordEmbedding loadedEmb) (asTensor idxes)  -- embTxt :: Tensor？
+  --     -- embedding' :: Tensor -> Tensor -> Tensor
+  --     -- toDependent :: IndependentTensor -> Tensor
+  -- print sampleTxt
+  -- print idxes  -- [[27,1,369],[369,1,369]]。Thisが27, isが1, awesomeが369。
+  -- print embTxt
 
   testSimilarity loadedEmb wordToIndexMap
   
